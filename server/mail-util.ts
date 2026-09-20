@@ -54,6 +54,26 @@ export function mailPivots(email: string): string[] {
   return [...out];
 }
 
+export function mailOpenLinks(email: string, hash?: string, sha256?: string): { label: string; url: string }[] {
+  const q = encodeURIComponent(email);
+  const hashQ = hash ?? "";
+  const sha = sha256 ?? "";
+  return [
+    { label: "Google", url: `https://www.google.com/search?q=%22${q}%22` },
+    { label: "DuckDuckGo", url: `https://duckduckgo.com/?q=%22${q}%22` },
+    { label: "GitHub", url: `https://github.com/search?q=${q}&type=code` },
+    { label: "HIBP", url: `https://haveibeenpwned.com/account/${q}` },
+    { label: "Hudson Rock", url: `https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-email?email=${q}` },
+    { label: "Epieos", url: `https://epieos.com/?q=${q}` },
+    { label: "Hunter", url: `https://hunter.io/search/${encodeURIComponent(email.split("@")[1] ?? "")}` },
+    { label: "IntelX", url: `https://intelx.io/?s=${q}` },
+    { label: "Gravatar", url: hashQ ? `https://gravatar.com/${hashQ}` : `https://gravatar.com/` },
+    { label: "Gravatar SHA-256", url: sha ? `https://gravatar.com/${sha}` : `https://gravatar.com/` },
+    { label: "Wayback", url: `https://web.archive.org/web/*/${q}` },
+    { label: "LinkedIn (Google)", url: `https://www.google.com/search?q=site%3Alinkedin.com+${q}` },
+  ];
+}
+
 export async function gravatarProfile(email: string) {
   const hash = md5(email);
   const sha256 = sha256Email(email);

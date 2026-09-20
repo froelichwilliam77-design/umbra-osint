@@ -7,10 +7,10 @@ import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { parseDmarc, parseSpf, lookupBimi, lookupDkim, lookupRdap } from "./host.ts";
 import { fetchPublic, jitter } from "./http.ts";
 import { handlers } from "./mail-oracles.ts";
-import { gravatarProfile, mailPivots } from "./mail-util.ts";
+import { gravatarProfile, mailOpenLinks, mailPivots } from "./mail-util.ts";
 import { loadSchema, type OracleSpec } from "./schema.ts";
 
-export { mailPivots, sha256Email } from "./mail-util.ts";
+export { mailPivots, mailOpenLinks, sha256Email } from "./mail-util.ts";
 
 function guessProvider(domain: string, mx: { exchange: string }[]): string | undefined {
   const exch = mx.map((m) => m.exchange.toLowerCase()).join(" ");
@@ -153,6 +153,7 @@ export async function buildMailDossier(email: string): Promise<MailDossier> {
     domainCreated: auth.domainCreated,
     pivots: [...new Set(pivots)],
     localPartAnalysis,
+    openLinks: mailOpenLinks(normalized, gravatar.hash, gravatar.sha256),
   };
 }
 

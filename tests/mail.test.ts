@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeLocalPart, detectKind, preflightMail, resolveMode } from "../server/detect.ts";
 import { parseDmarc, parseSpf } from "../server/host.ts";
-import { mailPivots, sha256Email } from "../server/mail.ts";
+import { mailOpenLinks, mailPivots, sha256Email } from "../server/mail.ts";
 
 const disposable = new Set(["mailinator.com", "yopmail.com"]);
 
@@ -56,6 +56,12 @@ describe("mail pivots and hashes", () => {
     expect(pivots).toContain("adalovelace");
     expect(pivots).toContain("ada_lovelace");
     expect(pivots).toContain("alovelace");
+  });
+
+  it("builds open-in OSINT links", () => {
+    const links = mailOpenLinks("press@github.com", "hash");
+    expect(links.length).toBeGreaterThan(6);
+    expect(links.some((l) => l.label === "Google")).toBe(true);
   });
 
   it("hashes Gravatar SHA-256 of the normalized address", () => {

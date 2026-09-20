@@ -13,6 +13,7 @@ import {
   Smartphone,
   UserRound,
   X,
+  ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -852,6 +853,22 @@ function MailCards({
           <p className="mt-2 text-[11px] text-fog-500">
             Gravatar linked: {dossier.gravatar.accounts.map((a) => a.shortname).join(", ")}
           </p>
+        ) : null}
+        {dossier.openLinks?.length ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {dossier.openLinks.map((l) => (
+              <a
+                key={l.label}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fog-300 hover:border-accent hover:text-fog-100"
+              >
+                <ExternalLink className="h-3 w-3" />
+                {l.label}
+              </a>
+            ))}
+          </div>
         ) : null}
       </Card>
     </div>

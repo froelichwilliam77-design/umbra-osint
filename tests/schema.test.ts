@@ -7,8 +7,8 @@ describe("schema integrity", () => {
     const stats = schemaStats();
     expect(stats.handleSites).toBeGreaterThan(900);
     expect(stats.sherlockSites ?? 0).toBeGreaterThan(200);
-    expect(stats.oracles).toBeGreaterThan(45);
-    expect(stats.disposableDomains).toBeGreaterThan(250);
+    expect(stats.oracles).toBeGreaterThan(140);
+    expect(stats.disposableDomains).toBeGreaterThan(400);
   });
 
   it("has a handler for every oracle", () => {

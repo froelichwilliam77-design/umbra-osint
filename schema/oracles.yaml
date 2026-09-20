@@ -214,3 +214,435 @@ oracles:
     name: Deezer
     category: music
     handler: deezer
+  - id: voxmedia
+    name: Vox Media
+    category: news
+    handler: voxmedia
+  - id: amocrm
+    name: amoCRM
+    category: business
+    handler: amocrm
+  - id: axonaut
+    name: Axonaut
+    category: business
+    handler: axonaut
+  - id: insightly
+    name: Insightly
+    category: business
+    handler: insightly
+  - id: nimble
+    name: Nimble
+    category: business
+    handler: nimble
+  - id: nocrm
+    name: noCRM
+    category: business
+    handler: nocrm
+  - id: nutshell
+    name: Nutshell
+    category: business
+    handler: nutshell
+  - id: pipedrive
+    name: Pipedrive
+    category: business
+    handler: pipedrive
+  - id: teamleader
+    name: Teamleader
+    category: business
+    handler: teamleader
+  - id: coroflot
+    name: Coroflot
+    category: art
+    handler: coroflot
+  - id: diigo
+    name: Diigo
+    category: hobby
+    handler: diigo
+  - id: rambler
+    name: Rambler
+    category: identity
+    handler: rambler
+  - id: sporcle
+    name: Sporcle
+    category: hobby
+    handler: sporcle
+  - id: ello
+    name: Ello
+    category: social
+    handler: ello
+  - id: rocketreach
+    name: RocketReach
+    category: identity
+    handler: rocketreach
+  - id: samsung
+    name: Samsung
+    category: shopping
+    handler: samsung
+  - id: codepen
+    name: CodePen
+    category: coding
+    handler: codepen
+  - id: devrant
+    name: devRant
+    category: coding
+    handler: devrant
+  - id: teamtreehouse
+    name: Treehouse
+    category: hobby
+    handler: teamtreehouse
+  - id: vrbo
+    name: Vrbo
+    category: shopping
+    handler: vrbo
+  - id: ebay
+    name: eBay
+    category: shopping
+    handler: ebay
+  - id: garmin
+    name: Garmin
+    category: health
+    handler: garmin
+  - id: vivino
+    name: Vivino
+    category: hobby
+    handler: vivino
+  - id: discord
+    name: Discord
+    category: social
+    handler: discord
+  - id: facebook
+    name: Facebook
+    category: social
+    handler: facebook
+  - id: fanpop
+    name: Fanpop
+    category: social
+    handler: fanpop
+  - id: snapchat
+    name: Snapchat
+    category: social
+    handler: snapchat
+  - id: bitmoji
+    name: Bitmoji
+    category: social
+    handler: bitmoji
+  - id: taringa
+    name: Taringa
+    category: social
+    handler: taringa
+  - id: tellonym
+    name: Tellonym
+    category: social
+    handler: tellonym
+  - id: vsco
+    name: VSCO
+    category: images
+    handler: vsco
+  - id: wattpad
+    name: Wattpad
+    category: art
+    handler: wattpad
+  - id: issuu
+    name: Issuu
+    category: art
+    handler: issuu
+  - id: lastpass
+    name: LastPass
+    category: tech
+    handler: lastpass
+  - id: bodybuilding
+    name: Bodybuilding.com
+    category: health
+    handler: bodybuilding
+  - id: blablacar
+    name: BlaBlaCar
+    category: shopping
+    handler: blablacar
+  - id: evernote
+    name: Evernote
+    category: tech
+    handler: evernote
+  - id: myspace
+    name: Myspace
+    category: social
+    handler: myspace
+  - id: crevado
+    name: Crevado
+    category: art
+    handler: crevado
+  - id: caringbridge
+    name: CaringBridge
+    category: health
+    handler: caringbridge
+  - id: sevencups
+    name: 7 Cups
+    category: health
+    handler: sevencups
+  - id: smule
+    name: Smule
+    category: music
+    handler: smule
+  - id: tunefind
+    name: Tunefind
+    category: music
+    handler: tunefind
+  - id: steam
+    name: Steam
+    category: gaming
+    handler: steam
+  - id: hudsonrock
+    name: Hudson Rock
+    category: identity
+    handler: hudsonrock
+  - id: asana
+    name: Asana
+    category: business
+    handler: asana
+  - id: letterboxd
+    name: Letterboxd
+    category: hobby
+    handler: letterboxd
+  - id: reddit
+    name: Reddit
+    category: social
+    handler: reddit
+  - id: airtable
+    name: Airtable
+    category: business
+    handler: airtable
+  - id: clickup
+    name: ClickUp
+    category: business
+    handler: clickup
+  - id: calendly
+    name: Calendly
+    category: business
+    handler: calendly
+  - id: etsy
+    name: Etsy
+    category: shopping
+    handler: etsy
+  - id: tiktok
+    name: TikTok
+    category: social
+    handler: tiktok
+  - id: twitch
+    name: Twitch
+    category: video
+    handler: twitch
+  - id: gumroad
+    name: Gumroad
+    category: shopping
+    handler: gumroad
+  - id: kofi
+    name: Ko-fi
+    category: art
+    handler: kofi
+  - id: hashnode
+    name: Hashnode
+    category: coding
+    handler: hashnode
+  - id: substack
+    name: Substack
+    category: news
+    handler: substack
+  - id: monday
+    name: monday.com
+    category: business
+    handler: monday
+  - id: figma
+    name: Figma
+    category: art
+    handler: figma
+  - id: miro
+    name: Miro
+    category: business
+    handler: miro
+  - id: sentry
+    name: Sentry
+    category: tech
+    handler: sentry
+  - id: mailchimp
+    name: Mailchimp
+    category: business
+    handler: mailchimp
+  - id: zoom
+    name: Zoom
+    category: business
+    handler: zoom
+  - id: digitalocean
+    name: DigitalOcean
+    category: tech
+    handler: digitalocean
+  - id: heroku
+    name: Heroku
+    category: tech
+    handler: heroku
+  - id: vercel
+    name: Vercel
+    category: tech
+    handler: vercel
+  - id: huggingface
+    name: Hugging Face
+    category: coding
+    handler: huggingface
+  - id: roblox
+    name: Roblox
+    category: gaming
+    handler: roblox
+  - id: epicgames
+    name: Epic Games
+    category: gaming
+    handler: epicgames
+  - id: wix
+    name: Wix
+    category: blog
+    handler: wix
+  - id: stripe
+    name: Stripe
+    category: finance
+    handler: stripe
+  - id: coinbase
+    name: Coinbase
+    category: finance
+    handler: coinbase
+  - id: binance
+    name: Binance
+    category: finance
+    handler: binance
+  - id: wise
+    name: Wise
+    category: finance
+    handler: wise
+  - id: airbnb
+    name: Airbnb
+    category: shopping
+    handler: airbnb
+  - id: booking
+    name: Booking.com
+    category: shopping
+    handler: booking
+  - id: doordash
+    name: DoorDash
+    category: shopping
+    handler: doordash
+  - id: meetup
+    name: Meetup
+    category: social
+    handler: meetup
+  - id: dailymotion
+    name: Dailymotion
+    category: video
+    handler: dailymotion
+  - id: yandex
+    name: Yandex
+    category: identity
+    handler: yandex
+  - id: vk
+    name: VK
+    category: social
+    handler: vk
+  - id: rumble
+    name: Rumble
+    category: video
+    handler: rumble
+  - id: medium
+    name: Medium
+    category: news
+    handler: medium
+  - id: intercom
+    name: Intercom
+    category: business
+    handler: intercom
+  - id: zendesk
+    name: Zendesk
+    category: business
+    handler: zendesk
+  - id: twilio
+    name: Twilio
+    category: tech
+    handler: twilio
+  - id: convertkit
+    name: ConvertKit
+    category: business
+    handler: convertkit
+  - id: openai
+    name: OpenAI
+    category: tech
+    handler: openai
+  - id: linear
+    name: Linear
+    category: tech
+    handler: linear
+  - id: namecheap
+    name: Namecheap
+    category: tech
+    handler: namecheap
+  - id: cloudflare
+    name: Cloudflare
+    category: tech
+    handler: cloudflare
+  - id: mongodb
+    name: MongoDB Atlas
+    category: tech
+    handler: mongodb
+  - id: fastmail
+    name: Fastmail
+    category: identity
+    handler: fastmail
+  - id: square
+    name: Square
+    category: finance
+    handler: square
+  - id: ancestry
+    name: Ancestry
+    category: identity
+    handler: ancestry
+  - id: myheritage
+    name: MyHeritage
+    category: identity
+    handler: myheritage
+  - id: pagerduty
+    name: PagerDuty
+    category: tech
+    handler: pagerduty
+  - id: datadog
+    name: Datadog
+    category: tech
+    handler: datadog
+  - id: freshdesk
+    name: Freshdesk
+    category: business
+    handler: freshdesk
+  - id: sendgrid
+    name: SendGrid
+    category: tech
+    handler: sendgrid
+  - id: grafana
+    name: Grafana
+    category: tech
+    handler: grafana
+  - id: newrelic
+    name: New Relic
+    category: tech
+    handler: newrelic
+  - id: godaddy
+    name: GoDaddy
+    category: tech
+    handler: godaddy
+  - id: revolut
+    name: Revolut
+    category: finance
+    handler: revolut
+  - id: kraken
+    name: Kraken
+    category: finance
+    handler: kraken
+  - id: instacart
+    name: Instacart
+    category: shopping
+    handler: instacart
+  - id: netflix
+    name: Netflix
+    category: video
+    handler: netflix
