@@ -126,10 +126,13 @@ const clientDir = join(root, "dist/client");
 if (existsSync(clientDir)) {
   await app.register(fastifyStatic, {
     root: clientDir,
+    cacheControl: false,
     setHeaders(res, filePath) {
       const lower = filePath.replaceAll("\\", "/").toLowerCase();
-      if (lower.endsWith("index.html") || lower.endsWith("/sw.js") || lower.endsWith("sw.js")) {
+      if (lower.endsWith("index.html") || lower.endsWith("sw.js")) {
         res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      } else if (lower.includes("/assets/")) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       }
     },
   });
