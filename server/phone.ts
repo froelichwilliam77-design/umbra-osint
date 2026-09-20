@@ -3,7 +3,7 @@ import type { CountryCode } from "libphonenumber-js/max";
 import type { LedgerRow, PhoneDossier } from "../shared/types.ts";
 import { fetchPublic } from "./http.ts";
 
-export const PHONE_LEDGER_COUNT = 5;
+export const PHONE_LEDGER_COUNT = 4;
 
 /** Public NANP NPA → region labels (numbering-plan data, not a live carrier dump). */
 const NANP_NPA: Record<string, string> = {

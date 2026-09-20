@@ -47,7 +47,7 @@ Live console screenshots:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across **1003** sites (963 clearnet). GitHub should be **found** with avatar/bio/followers; matching avatars get a pHash cluster on the identity graph.
+2. `octocat` in Auto/Handle — classified hits across **1003** sites (963 clearnet). This upgrade local run: **193 found** / 461 miss / 178 blocked / 105 escalate on 963 clearnet (v1.1.0: 157 found / 326 miss / 140 blocked / 62 escalate on 699). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
 3. `press@github.com` in Mail — dossier + silent oracles + **1-click pivots** to handle `press` and host `github.com`. HIBP stays off unless `HIBP_API_KEY` is set.
 4. `github.com` in Host — RDAP / DNS / cert SAN.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type, optional carrier.
