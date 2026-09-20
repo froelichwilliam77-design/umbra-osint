@@ -8,10 +8,10 @@ import type {
   LedgerRow,
   MailDossier,
   PhoneDossier,
-  ScanCompare,
   ScanMode,
   ScanSummary,
 } from "../shared/types.ts";
+import { compareScans } from "../shared/compare.ts";
 
 function addNode(nodes: Map<string, GraphNode>, node: GraphNode): void {
   if (!nodes.has(node.id)) nodes.set(node.id, node);
@@ -62,6 +62,17 @@ export function buildIdentityGraph(input: {
         pivot: { query: handle, mode: "handle" },
       });
       addEdge(edges, centerId, id, "local-part");
+    }
+    if (d.hibp?.enabled) {
+      const hibpId = "oracle:hibp";
+      addNode(nodes, {
+        id: hibpId,
+        kind: "oracle",
+        label: d.hibp.breachCount ? `HIBP ${d.hibp.breachCount} breaches` : "HIBP clean",
+        status: d.hibp.breachCount ? "found" : "miss",
+        url: "https://haveibeenpwned.com/",
+      });
+      addEdge(edges, centerId, hibpId, "breach");
     }
   }
   if (dossier && "e164" in dossier) {
@@ -119,30 +130,4 @@ export function buildIdentityGraph(input: {
   return { nodes: [...nodes.values()], edges };
 }
 
-export function compareScans(a: { summary: ScanSummary; rows: LedgerRow[] }, b: { summary: ScanSummary; rows: LedgerRow[] }): ScanCompare {
-  const key = (r: LedgerRow) => r.site.toLowerCase();
-  const foundA = a.rows.filter((r) => r.status === "found");
-  const foundB = b.rows.filter((r) => r.status === "found");
-  const mapA = new Map(foundA.map((r) => [key(r), r]));
-  const mapB = new Map(foundB.map((r) => [key(r), r]));
-  const onlyA = [...mapA.entries()]
-    .filter(([k]) => !mapB.has(k))
-    .map(([, r]) => ({ site: r.site, url: r.profileUrl || r.url, status: r.status }));
-  const onlyB = [...mapB.entries()]
-    .filter(([k]) => !mapA.has(k))
-    .map(([, r]) => ({ site: r.site, url: r.profileUrl || r.url, status: r.status }));
-  const both = [...mapA.entries()]
-    .filter(([k]) => mapB.has(k))
-    .map(([k, r]) => ({
-      site: r.site,
-      urlA: r.profileUrl || r.url,
-      urlB: mapB.get(k)!.profileUrl || mapB.get(k)!.url,
-    }));
-  return {
-    a: { id: a.summary.id, query: a.summary.query, mode: a.summary.mode, found: foundA.length },
-    b: { id: b.summary.id, query: b.summary.query, mode: b.summary.mode, found: foundB.length },
-    onlyA,
-    onlyB,
-    both,
-  };
-}
+export { compareScans };

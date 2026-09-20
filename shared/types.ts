@@ -133,6 +133,23 @@ export interface MailDossier {
   pivots: string[];
   localPartAnalysis: LocalPartAnalysis;
   openLinks: { label: string; url: string }[];
+  hibp?: HibpDossier;
+}
+
+export interface HibpBreach {
+  name: string;
+  title?: string;
+  domain?: string;
+  breachDate?: string;
+  pwnCount?: number;
+  dataClasses?: string[];
+}
+
+export interface HibpDossier {
+  enabled: boolean;
+  skipped?: string;
+  breachCount: number;
+  breaches: HibpBreach[];
 }
 
 export interface SpfRecord {
@@ -233,6 +250,7 @@ export interface PhoneDossier {
   timezones: string[];
   pivots: string[];
   lookups: { source: string; status: "found" | "miss" | "skipped" | "blocked" | "error"; detail?: string }[];
+  openLinks: { label: string; url: string }[];
 }
 
 export interface GraphNode {
@@ -325,4 +343,16 @@ export interface SchemaStats {
   sherlockSites?: number;
   curatedSites?: number;
   leanSites?: number;
+  oraclesLean?: number;
+}
+
+export interface SavedCase {
+  id: string;
+  query: string;
+  mode: DetectedKind;
+  savedAt: string;
+  found: number;
+  summary: ScanSummary;
+  foundRows: LedgerRow[];
+  graph?: IdentityGraph;
 }

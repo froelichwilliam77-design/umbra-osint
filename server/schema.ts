@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { FAST_TIER_SIZE, LEAN_SITE_CAP, type ScanProfile } from "../shared/scan-limits.ts";
 import type { SchemaStats } from "../shared/types.ts";
 import { fastTierSize, leanSiteCap } from "./limits.ts";
+import { selectMailOracles } from "./mail-priority.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -171,6 +172,7 @@ export function schemaStats(): SchemaStats {
     categories,
     oracles: s.oracles.length,
     oraclesQuarantined: s.oracles.filter((o) => Boolean(o.quarantine)).length,
+    oraclesLean: selectMailOracles(s.oracles, { profile: "lean" }).length,
     disposableDomains: s.disposable.size,
     wmnImportedAt: s.wmnImportedAt,
     wmnSource: s.wmnSource,

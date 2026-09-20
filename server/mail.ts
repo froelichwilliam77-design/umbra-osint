@@ -7,11 +7,20 @@ import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { parseDmarc, parseSpf, lookupBimi, lookupDkim, lookupRdap } from "./host.ts";
 import { fetchPublic, jitter } from "./http.ts";
 import { finalizeOracleVerdict } from "./mail-oracle-recover.ts";
+import { lookupHibp } from "./hibp.ts";
 import { handlers } from "./mail-oracles.ts";
+import { mailOracleJitter, selectMailOracles } from "./mail-priority.ts";
 import { gravatarProfile, mailOpenLinks, mailPivots } from "./mail-util.ts";
 import { loadSchema, type OracleSpec } from "./schema.ts";
+import type { ScanProfile } from "../shared/scan-limits.ts";
 
 export { mailPivots, mailOpenLinks, sha256Email } from "./mail-util.ts";
+export { selectMailOracles } from "./mail-priority.ts";
+
+export function mailScanSiteCount(profile?: ScanProfile): number {
+  const oracles = selectMailOracles(loadSchema().oracles, { profile });
+  return oracles.length + 8;
+}
 
 function guessProvider(domain: string, mx: { exchange: string }[]): string | undefined {
   const exch = mx.map((m) => m.exchange.toLowerCase()).join(" ");
@@ -115,11 +124,12 @@ async function domainAuthRecords(domain: string): Promise<{
 export async function buildMailDossier(email: string): Promise<MailDossier> {
   const normalized = email.trim().toLowerCase();
   const [localPart, domain] = normalized.split("@");
-  const [mx, gravatar, tenant, auth] = await Promise.all([
+  const [mx, gravatar, tenant, auth, hibp] = await Promise.all([
     resolveMx(domain),
     gravatarProfile(normalized),
     lookupM365Tenant(normalized),
     domainAuthRecords(domain),
+    lookupHibp(normalized),
   ]);
   const disposable = loadSchema().disposable.has(domain);
   const localPartAnalysis = analyzeLocalPart(localPart);
@@ -155,6 +165,7 @@ export async function buildMailDossier(email: string): Promise<MailDossier> {
     pivots: [...new Set(pivots)],
     localPartAnalysis,
     openLinks: mailOpenLinks(normalized, gravatar.hash, gravatar.sha256),
+    hibp,
   };
 }
 
@@ -194,18 +205,21 @@ export async function runMailScan(
     onRow: (row: LedgerRow) => void;
     pool?: HostPool;
     onPool?: (pool: HostPool) => void;
+    profile?: ScanProfile;
   },
 ): Promise<void> {
-  const oracles = loadSchema().oracles.filter((spec) => {
-    if (spec.handler === "hibp" && !process.env.HIBP_API_KEY?.trim()) return false;
-    return true;
-  });
+  const oracles = selectMailOracles(loadSchema().oracles, {
+    profile: opts.profile,
+    hibpKey: Boolean(process.env.HIBP_API_KEY?.trim()),
+  }).filter((spec) => spec.handler !== "hibp");
   const pool = opts.pool ?? new HostPool({ global: opts.workers, perHost: opts.perHost });
   opts.onPool?.(pool);
   await Promise.all(
     oracles.map((spec) =>
       pool.schedule(spec.id, async () => {
-        await jitter(60, 240);
+        if (pool.isAborted) return;
+        const wait = mailOracleJitter(spec);
+        await jitter(wait.min, wait.max);
         if (pool.isAborted) return;
         if (spec.quarantine) {
           const reason =

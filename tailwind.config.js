@@ -14,8 +14,8 @@ export default {
         },
         fog: {
           100: "#e8e6e1",
-          300: "#b8b4ab",
-          500: "#7c786f",
+          300: "#c4c0b6",
+          500: "#9c978c",
         },
         signal: {
           found: "#5ee0a8",

@@ -23,6 +23,11 @@ export function inferDefaultProfile(env: Record<string, string | undefined> = pr
   return "full";
 }
 
+export function progressPercent(done: number, total: number): number {
+  if (!total || total <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+}
+
 export function rssPressureOf(rssMb: number, softMb: number, hardMb: number): "ok" | "soft" | "hard" {
   if (rssMb >= hardMb) return "hard";
   if (rssMb >= softMb) return "soft";

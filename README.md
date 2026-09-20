@@ -4,11 +4,13 @@ Public-OSINT workstation for **handle**, **mail**, **host**, and **phone** recon
 
 Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
 
-Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, handle + host pivots, open-in OSINT links) and runs **161** silent registration oracles — never SMTP or password-reset mail. Have I Been Pwned is skipped entirely unless `HIBP_API_KEY` is set.
+Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, **Have I Been Pwned** when `HIBP_API_KEY` is set, handle + host pivots, open-in OSINT links) and runs silent registration oracles — never SMTP or password-reset mail. **Lean** (Railway default) probes high-signal oracles first (GitHub, Microsoft, Gravatar, Discord, …) and skips quarantined / chronically blocked modules. **Full** still ranks high-signal first, then the rest. Found rows surface immediately as **likely hits** while the scan continues.
 
 Host mode pulls RDAP, DNS, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS headers/title, and the TLS certificate.
 
-Phone mode (new) E.164-normalizes with libphonenumber, adds country/region/type hints (NANP NPA labels where known), and optional Twilio/Numverify carrier lookups behind env keys. It never sends SMS.
+Phone mode E.164-normalizes with libphonenumber, adds country/region/type/timezone hints (NANP NPA labels where known), public lookup pivots (Google, Truecaller, Whitepages, wa.me, …), and optional Twilio/Numverify carrier lookups behind env keys. It never sends SMS.
+
+Finished scans auto-save as **cases** (dossier + found rows + graph) in IndexedDB/localStorage, and on a server JSON volume when `UMBRA_CASES_DIR` or `/data` is writable. Reopen yesterday’s case, export JSON/Markdown, or compare two cases side by side without a full re-scan. After mail, **Run pivots** queues local-part handle then mail-domain host (one scan at a time — 1 GB safe).
 
 **Authorized use only.** Run it against identifiers you are allowed to investigate. Server-side fetches refuse private, loopback, link-local, and metadata addresses (SSRF).
 
@@ -49,10 +51,10 @@ Live console screenshots:
 
 1. Accept the authorized-use gate.
 2. `octocat` in Auto/Handle — classified hits across **1001** sites (961 clearnet). This upgrade local run: **197 found** / 503 miss / 170 blocked / **40 escalate** on 961 clearnet (v1.3.0: 193 found / 461 miss / 178 blocked / 105 escalate on 963). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **1-click pivots** to handle `press` and host `github.com` + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: **13 found** / **98 miss** / **44 blocked** / **9 escalate** (v1.3.0: 9 found / 29 miss / 29 blocked / **98 escalate**). Found includes MX, SPF, DMARC, DKIM, M365 Managed, GitHub, GitLab, Discord/OpenAI/Substack when the oracle is not CAPTCHA-gated. HIBP stays off unless `HIBP_API_KEY` is set.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (high-signal first). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
-5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type, optional carrier.
-6. **Save case**, run a second query, **Compare with** the saved run. Export Markdown / JSON / JSONL / CSV / HTML.
+5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
+6. **Cases** — finished scans auto-save. Open / delete / export JSON or Markdown. **Side by side** compares two saved cases.
 
 ## Railway (public HTTPS)
 
@@ -60,7 +62,7 @@ Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, l
 
 **1 GB hobby / free plan:** keep Playwright **off**. A full 1000-site handle scan with curl-impersonate used to peak at **~1.34 GB RSS** and freeze the phone UI. Production now defaults to:
 
-- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites (toggle **Full** in the UI for the complete map; Full still runs a fast tier of ~150 first)
+- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites, high-signal mail oracles first (quarantined / chronically blocked skipped). Toggle **Full** in the UI for the complete map.
 - `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=1`, `UMBRA_BODY_LIMIT=48000`
 - RSS cancel at **450 / 600 MB** (`UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB`)
 - `NODE_OPTIONS=--max-old-space-size=384`, Playwright off
@@ -106,9 +108,9 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 | Mode | Pre-flight | Work |
 | --- | --- | --- |
 | **Handle** | length/charset regex | WhatsMyName + Sherlock overlay + curated YAML. Dual-condition match. TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters. |
-| **Mail** | format, disposable list, MX | Identity dossier (Gravatar MD5+SHA256, M365, SPF/DMARC/DKIM/BIMI, open-in OSINT links) + **161** silent oracles (Holehe-style). 1-click pivots to local-part handle and mail domain host. HIBP skipped unless keyed. |
+| **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in links) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. **Run pivots** → local-part handle then mail domain host. |
 | **Host** | hostname sanity | RDAP, DNS, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN. |
-| **Phone** | E.164 / libphonenumber | Country, NANP region, line type, optional Twilio/Numverify carrier. Public search links only — no SMS. |
+| **Phone** | E.164 / libphonenumber | Country, NANP region, line type, timezone hint, optional Twilio/Numverify carrier, public lookup pivots. Never SMS. |
 | **Auto** | — | `@` → mail; phone-shaped → phone; dotted hostname with a TLD → host; otherwise handle. |
 
 ### Classification
@@ -120,7 +122,7 @@ Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
 - Exist/missing substring collisions (e.g. `"them":` vs `"them":null`) resolve to the more specific side.
 - Mail oracles recover unclassified JSON flags, taken/available copy, CSRF, and signup HTML into found/miss/blocked. Escalate is the last resort.
-- Chronically CSRF-dead oracles (X, Instagram, Facebook, TikTok, Myspace) are **quarantined** as blocked and not probed.
+- Chronically CSRF-dead oracles (X, Instagram, Facebook, TikTok, Myspace) are **quarantined**. Lean skips them entirely; Full emits them as **blocked** without a probe.
 
 ### Anti-bot (what actually ships)
 
@@ -132,11 +134,11 @@ Local without Docker: TLS impersonation is **partial** until `curl-impersonate` 
 
 ### Mail safety
 
-Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is skipped unless `HIBP_API_KEY` is set (the oracle row is not emitted).
+Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names + dates). Without a key the HIBP oracle is omitted entirely — never a fake miss.
 
 ### Phone safety
 
-Public numbering-plan metadata only. Optional live carrier APIs require your own keys. Umbra never sends SMS or places calls.
+Public numbering-plan metadata, timezone hints, and search/profile URLs only. Optional live carrier APIs require your own keys. Umbra never sends SMS or places calls (`wa.me` is a public chat deep-link, not a message send).
 
 ## Schema
 
@@ -163,12 +165,16 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 - `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile? }` (`profile`: `lean` | `full`)
 - `GET /api/scans` in-memory summaries (for compare)
 - `GET /api/scans/:id` snapshot + graph
-- `GET /api/scans/:id/events` SSE ledger (includes `graph` / `clusters`)
+- `GET /api/scans/:id/events` SSE ledger (batched; found rows flush immediately)
 - `GET /api/scans/:id/graph`
 - `GET /api/scans/compare?a=&b=` found-site diff of two in-memory scans
 - `GET /api/scans/:id/export?format=md|json|jsonl|csv|html`
-- `GET /api/schema` registry stats
-- `GET /api/health` TLS / Playwright / HIBP flags
+- `GET /api/cases` persisted cases (`persist`: `volume` \| `memory`)
+- `POST /api/cases` `{ scanId }` or imported case JSON
+- `GET /api/cases/:id` · `DELETE /api/cases/:id` · `GET /api/cases/:id/export?format=json|md`
+- `GET /api/cases/compare?a=&b=`
+- `GET /api/schema` registry stats (`oraclesLean`)
+- `GET /api/health` TLS / Playwright / HIBP / cases persist flags
 
 ## Tests
 
@@ -181,7 +187,8 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `PORT` / `UMBRA_PORT` | `43180` | Engine bind |
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
-| `HIBP_API_KEY` | unset | Optional breach oracle (skipped silently if unset) |
+| `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger. When unset, HIBP is omitted (not a miss). |
+| `UMBRA_CASES_DIR` | `/data/umbra-cases` if `/data` is writable, else unset | Optional JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
 | `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first) |
 | `UMBRA_LEAN_SITES` | `200` | Cap for lean handle scans |
 | `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |

@@ -9,6 +9,17 @@ import { renderExport } from "./exports.ts";
 import { healthPayload } from "./health.ts";
 import { importWmnPayload, reloadSchema, schemaStats } from "./schema.ts";
 import { canStartScan, cancelScan, compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
+import {
+  caseFromScan,
+  casesPersistMode,
+  compareCases,
+  deleteCase,
+  exportCase,
+  getCase,
+  importCasePayload,
+  listCases,
+  persistCase,
+} from "./cases.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -139,6 +150,53 @@ app.get("/api/scans/:id/export", async (req, reply) => {
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+app.get("/api/cases", async () => ({ persist: casesPersistMode(), cases: listCases() }));
+
+app.get("/api/cases/compare", async (req, reply) => {
+  const q = req.query as { a?: string; b?: string };
+  if (!q.a || !q.b) return reply.code(400).send({ error: "a and b case ids are required" });
+  const result = compareCases(q.a, q.b);
+  if (!result) return reply.code(404).send({ error: "one or both cases were not found" });
+  return result;
+});
+
+app.get("/api/cases/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = getCase(id);
+  if (!rec) return reply.code(404).send({ error: "case not found" });
+  return rec;
+});
+
+app.post("/api/cases", async (req, reply) => {
+  const body = (req.body ?? {}) as { scanId?: string; case?: unknown };
+  if (body.scanId) {
+    const stored = getScan(body.scanId);
+    if (!stored) return reply.code(404).send({ error: "scan not found" });
+    return persistCase(caseFromScan(stored.summary, stored.rows, stored.summary.graph));
+  }
+  try {
+    return importCasePayload(body.case ?? req.body);
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.delete("/api/cases/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!deleteCase(id)) return reply.code(404).send({ error: "case not found" });
+  return { ok: true };
+});
+
+app.get("/api/cases/:id/export", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const format = String((req.query as { format?: string }).format ?? "json");
+  const file = exportCase(id, format);
+  if (!file) return reply.code(404).send({ error: "case not found" });
+  reply.header("Content-Type", file.contentType);
+  reply.header("Content-Disposition", `attachment; filename="${file.filename}"`);
+  return reply.send(file.body);
 });
 
 const clientDir = join(root, "dist/client");

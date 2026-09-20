@@ -28,6 +28,19 @@ describe("phone detection and E.164", () => {
     expect(pf.notes.some((n) => /SMS/i.test(n))).toBe(true);
   });
 
+  it("builds public lookup pivots without sending SMS", async () => {
+    const { buildPhoneDossier, phoneOpenLinks } = await import("../server/phone.ts");
+    const links = phoneOpenLinks("+14155552671", "US");
+    expect(links.some((l) => l.label === "Truecaller")).toBe(true);
+    expect(links.some((l) => l.label === "WhatsApp" && l.url.includes("wa.me"))).toBe(true);
+    expect(links.every((l) => !/sms:|twilio\.com\/.*Messages/i.test(l.url))).toBe(true);
+    const d = await buildPhoneDossier("+14155552671");
+    expect(d.e164).toBe("+14155552671");
+    expect(d.openLinks.length).toBeGreaterThan(3);
+    expect(d.timezones.length).toBeGreaterThan(0);
+    expect(d.regionHint).toMatch(/United States|San Francisco/i);
+  });
+
   it("rejects obviously impossible numbers", () => {
     expect(preflightPhone("+1").ok).toBe(false);
     expect(looksLikePhone("911")).toBe(false);

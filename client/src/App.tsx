@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Smartphone,
   UserRound,
+  Waypoints,
   X,
   ExternalLink,
 } from "lucide-react";
@@ -19,8 +20,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ComparePanel, GraphPanel } from "@/components/GraphPanel";
+import { CasesPanel, openSavedCase } from "@/components/CasesPanel";
 import { VirtualLedger } from "@/components/VirtualLedger";
-import { createBatcher, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
+import { createBatcher, progressPercent, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
 import type {
   HostDossier,
   IdentityGraph,
@@ -28,6 +30,7 @@ import type {
   LedgerStatus,
   MailDossier,
   PhoneDossier,
+  SavedCase,
   ScanCompare,
   ScanEvent,
   ScanMode,
@@ -36,6 +39,7 @@ import type {
   SchemaStats,
 } from "@shared/types";
 import { AUTHORIZED_USE } from "@shared/constants";
+import { caseFromScan, listLocalCases, saveLocalCase } from "@/lib/cases";
 
 const STATUSES: LedgerStatus[] = ["found", "miss", "blocked", "escalate", "error", "invalid"];
 
@@ -80,26 +84,6 @@ function isPhone(d: ScanSummary["dossier"]): d is PhoneDossier {
   return Boolean(d && "e164" in d);
 }
 
-type SavedCase = {
-  id: string;
-  query: string;
-  mode: ScanSummary["mode"];
-  savedAt: string;
-  found: number;
-};
-
-function loadCases(): SavedCase[] {
-  try {
-    return JSON.parse(localStorage.getItem("umbra.cases") || "[]") as SavedCase[];
-  } catch {
-    return [];
-  }
-}
-
-function storeCases(cases: SavedCase[]): void {
-  localStorage.setItem("umbra.cases", JSON.stringify(cases.slice(0, 8)));
-}
-
 export default function App() {
   const [accepted, setAccepted] = useState(() => localStorage.getItem("umbra.ok") === "1");
   const [query, setQuery] = useState("octocat");
@@ -118,11 +102,19 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [graph, setGraph] = useState<IdentityGraph | null>(null);
-  const [cases, setCases] = useState<SavedCase[]>(() => loadCases());
+  const [cases, setCases] = useState<SavedCase[]>([]);
   const [compare, setCompare] = useState<ScanCompare | null>(null);
   const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const batcherRef = useRef<ReturnType<typeof createBatcher<LedgerRow>> | null>(null);
+  const rowsRef = useRef<LedgerRow[]>([]);
+  const scanRef = useRef<ScanSummary | null>(null);
+  const graphRef = useRef<IdentityGraph | null>(null);
+  const pivotQueueRef = useRef<{ query: string; mode: ScanMode }[]>([]);
+
+  rowsRef.current = rows;
+  scanRef.current = scan;
+  graphRef.current = graph;
 
   useEffect(() => {
     void fetch("/api/schema")
@@ -142,6 +134,7 @@ export default function App() {
         if (h?.limits?.profile === "full" || h?.limits?.profile === "lean") setProfile(h.limits.profile);
       })
       .catch(() => undefined);
+    void listLocalCases().then(setCases).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -170,10 +163,22 @@ export default function App() {
   const queueRows = (incoming: LedgerRow | LedgerRow[]) => {
     if (!batcherRef.current) batcherRef.current = createBatcher(applyRows, SSE_FLUSH_MS);
     const list = Array.isArray(incoming) ? incoming : [incoming];
-    batcherRef.current.pushMany(list);
+    const hits = list.filter((r) => r.status === "found");
+    const rest = list.filter((r) => r.status !== "found");
+    if (hits.length) applyRows(hits);
+    if (rest.length) batcherRef.current.pushMany(rest);
   };
 
-  const start = async (override?: { query?: string; mode?: ScanMode }) => {
+  const persistActive = async (summary?: ScanSummary | null) => {
+    const s = summary ?? scanRef.current;
+    if (!s) return;
+    batcherRef.current?.flush();
+    const rec = caseFromScan(s, rowsRef.current, graphRef.current ?? s.graph);
+    await saveLocalCase(rec);
+    setCases((prev) => [rec, ...prev.filter((c) => c.id !== rec.id)].slice(0, 24));
+  };
+
+  const start = async (override?: { query?: string; mode?: ScanMode; keepPivots?: boolean }) => {
     const q = (override?.query ?? query).trim();
     if (!q) return;
     setError(null);
@@ -188,6 +193,7 @@ export default function App() {
     setSearch("");
     setGraph(null);
     setCompare(null);
+    if (!override?.keepPivots) pivotQueueRef.current = [];
     sourceRef.current?.close();
     try {
       const payload = {
@@ -242,6 +248,13 @@ export default function App() {
         if (event.type === "done") {
           setBusy(false);
           es.close();
+          void persistActive(event.scan).then(() => {
+            const next = pivotQueueRef.current.shift();
+            if (next) {
+              setNotice(`Auto-pivot: ${next.mode} ${next.query}`);
+              void start({ query: next.query, mode: next.mode, keepPivots: true });
+            }
+          });
         }
       };
       es.onerror = () => {
@@ -257,10 +270,12 @@ export default function App() {
 
 
   const cancel = async () => {
+    pivotQueueRef.current = [];
     sourceRef.current?.close();
     batcherRef.current?.flush();
     setBusy(false);
-    const id = scan?.id;
+    setScan((s) => (s && s.status === "running" ? { ...s, status: "cancelled", abortReason: "cancelled by user" } : s));
+    const id = scanRef.current?.id ?? scan?.id;
     if (!id) return;
     try {
       const res = await fetch(`/api/scans/${id}/cancel`, { method: "POST" });
@@ -285,27 +300,26 @@ export default function App() {
   };
 
   const saveCase = () => {
-    if (!scan) return;
-    const next: SavedCase = {
-      id: scan.id,
-      query: scan.query,
-      mode: scan.mode,
-      savedAt: new Date().toISOString(),
-      found: scan.progress.found,
-    };
-    const merged = [next, ...cases.filter((c) => c.id !== next.id)].slice(0, 8);
-    setCases(merged);
-    storeCases(merged);
+    void persistActive();
   };
 
-  const runCompare = async (otherId: string) => {
-    if (!scan) return;
-    const res = await fetch(`/api/scans/compare?a=${encodeURIComponent(scan.id)}&b=${encodeURIComponent(otherId)}`);
-    if (!res.ok) {
-      setError("Compare needs both scans still in this browser session (in-memory). Save, then run the second recon before leaving.");
-      return;
+  const runPivots = () => {
+    const s = scan;
+    if (!s || !isMail(s.dossier)) return;
+    void persistActive(s);
+    const d = s.dossier;
+    const handle = d.localPartAnalysis.base || d.localPart;
+    pivotQueueRef.current = [
+      { query: handle, mode: "handle" },
+      { query: d.domain, mode: "host" },
+    ];
+    const first = pivotQueueRef.current.shift();
+    if (first) {
+      setQuery(first.query);
+      setMode(first.mode);
+      setNotice(`Pivoting ${first.mode} ${first.query}, then host ${d.domain}`);
+      void start({ query: first.query, mode: first.mode, keepPivots: true });
     }
-    setCompare((await res.json()) as ScanCompare);
   };
 
   const cats = useMemo(() => {
@@ -340,7 +354,15 @@ export default function App() {
   }, [rows, filter, category, search]);
 
   const progress: ScanProgress | undefined = scan?.progress;
+  const pct = progressPercent(progress?.done ?? 0, progress?.total ?? 0);
   const hitCount = (progress?.found ?? 0) + (progress?.blocked ?? 0) + (progress?.escalate ?? 0);
+  const likelyHits = useMemo(
+    () =>
+      rows
+        .filter((r) => r.status === "found" && r.category !== "dns")
+        .slice(0, 16),
+    [rows],
+  );
 
   const openRow = (row: LedgerRow) => {
     setSelected(row);
@@ -385,9 +407,9 @@ export default function App() {
               <h1 className="text-lg font-medium tracking-wide">Umbra</h1>
               <Badge tone="muted">public OSINT</Badge>
             </div>
-            <p className="mt-1 max-w-2xl text-xs text-fog-500">
+            <p className="mt-1 max-w-2xl text-xs text-fog-300">
               {schema
-                ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
+                ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles${schema.oraclesLean ? ` · lean ${schema.oraclesLean}` : ""} · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
                 : "Loading schema…"}
             </p>
           </div>
@@ -416,26 +438,11 @@ export default function App() {
               Save case
             </Button>
           )}
-          {cases.length > 0 && scan && (
-            <label className="flex items-center gap-2 font-mono text-[11px] text-fog-500">
-              Compare with
-              <select
-                className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 text-fog-100"
-                defaultValue=""
-                onChange={(e) => {
-                  if (e.target.value) void runCompare(e.target.value);
-                }}
-              >
-                <option value="">saved run…</option>
-                {cases
-                  .filter((c) => c.id !== scan.id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.mode} {c.query} ({c.found} found)
-                    </option>
-                  ))}
-              </select>
-            </label>
+          {scan && isMail(scan.dossier) && (
+            <Button size="sm" variant="outline" className="tap-lg" onClick={runPivots}>
+              <Waypoints className="h-3.5 w-3.5" />
+              Run pivots
+            </Button>
           )}
         </div>
       </header>
@@ -492,10 +499,10 @@ export default function App() {
               {label}
             </button>
           ))}
-          <span className="font-mono text-[11px] text-fog-500">
+          <span className="font-mono text-[11px] text-fog-300">
             {profile === "lean"
-              ? `Lean: ~${schema?.leanSites ?? 200} curated + high-signal handle sites (fits 1 GB Railway).`
-              : "Full: all clearnet sites. Fast tier (~150) runs first, then the rest."}
+              ? `Lean: ~${schema?.leanSites ?? 200} handle sites · high-signal mail first (fits 1 GB Railway).`
+              : "Full: all clearnet sites + remaining mail oracles. Fast/high-signal tier first."}
           </span>
         </div>
         <form
@@ -519,12 +526,12 @@ export default function App() {
           <Button type="submit" size="lg" className="tap-lg w-full sm:w-auto">
             {busy ? "Replace…" : "Recon"}
           </Button>
-          {busy && (
+          {(busy || scan?.status === "running") && (
             <Button
               type="button"
               size="lg"
               variant="outline"
-              className="tap-lg w-full sm:w-auto"
+              className="tap-lg w-full sm:w-auto border-signal-blocked text-signal-blocked"
               onClick={() => void cancel()}
             >
               Cancel
@@ -587,23 +594,72 @@ export default function App() {
       )}
 
       {scan && (
-        <div className="mt-2 h-1 overflow-hidden rounded bg-ink-700">
-          <div
-            className="h-full bg-accent transition-all"
-            style={{
-              width: `${progress && progress.total ? Math.min(100, (progress.done / progress.total) * 100) : 0}%`,
-            }}
-          />
+        <div className="mt-2 flex items-center gap-3">
+          <div className="h-2.5 flex-1 overflow-hidden rounded bg-ink-700">
+            <div
+              className="h-full bg-accent transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="shrink-0 font-mono text-xs text-fog-100">
+            {pct}%{progress ? ` · ${progress.done}/${progress.total}` : ""}
+            {scan.status === "running" ? " · live" : scan.status === "cancelled" ? " · cancelled" : ""}
+          </span>
+        </div>
+      )}
+
+      {likelyHits.length > 0 && (
+        <div className="mt-3 rounded-xl border border-signal-found/30 bg-signal-found/5 p-3">
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-wide text-signal-found">
+            Likely hits{scan?.status === "running" ? " · still scanning" : ""}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {likelyHits.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => openRow(r)}
+                className="tap-lg rounded-full border border-signal-found/40 bg-ink-950 px-3 py-1 font-mono text-[11px] text-signal-found"
+              >
+                {r.site}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {scan && isMail(scan.dossier) && (
-        <MailCards dossier={scan.dossier} onPivot={pivotHandle} onHost={(h) => pivotTo(h, "host")} />
+        <MailCards
+          dossier={scan.dossier}
+          onPivot={pivotHandle}
+          onHost={(h) => pivotTo(h, "host")}
+          onRunPivots={runPivots}
+        />
       )}
       {scan && isHost(scan.dossier) && <HostCards dossier={scan.dossier} />}
       {scan && isPhone(scan.dossier) && <PhoneCards dossier={scan.dossier} />}
-      <GraphPanel graph={graph} onPivot={pivotTo} />
+      <GraphPanel
+        graph={graph}
+        onPivot={pivotTo}
+        onRunPivots={scan && isMail(scan.dossier) ? runPivots : undefined}
+      />
       <ComparePanel compare={compare} onClose={() => setCompare(null)} />
+      <CasesPanel
+        cases={cases}
+        onChange={setCases}
+        onOpen={(rec) => {
+          const opened = openSavedCase(rec);
+          sourceRef.current?.close();
+          setBusy(false);
+          setScan(opened.scan);
+          setRows(opened.rows);
+          setGraph(opened.graph);
+          setSelected(opened.rows.find((r) => r.status === "found") ?? opened.rows[0] ?? null);
+          setFilter("found");
+          setNotice(`Opened saved case ${rec.mode} ${rec.query} (${rec.found} found) — no re-scan.`);
+        }}
+        onCompare={setCompare}
+      />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="rounded-xl border border-ink-600 bg-ink-900/70">
@@ -819,14 +875,16 @@ function MailCards({
   dossier,
   onPivot,
   onHost,
+  onRunPivots,
 }: {
   dossier: MailDossier;
   onPivot: (handle: string) => void;
   onHost: (host: string) => void;
+  onRunPivots: () => void;
 }) {
   const pivots = dossier.pivots.length ? dossier.pivots : [dossier.localPartAnalysis.base];
   return (
-    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
       <Card icon={<Mail className="h-4 w-4" />} title="Identity">
         <p className="font-mono text-sm">{dossier.email}</p>
         <p className="mt-1 text-xs text-fog-500">
@@ -851,6 +909,10 @@ function MailCards({
           <p className="font-mono text-[11px] text-fog-500">domain created {dossier.domainCreated}</p>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" className="tap-lg" onClick={onRunPivots}>
+            <Waypoints className="h-3.5 w-3.5" />
+            Run pivots
+          </Button>
           {pivots.slice(0, 6).map((p) => (
             <Button key={p} size="sm" variant="outline" className="tap-lg" onClick={() => onPivot(p)}>
               <UserRound className="h-3.5 w-3.5" />
@@ -907,6 +969,32 @@ function MailCards({
           </div>
         )}
       </Card>
+      <Card icon={<Fingerprint className="h-4 w-4" />} title="HIBP">
+        {!dossier.hibp?.enabled ? (
+          <div>
+            <p className="text-sm text-fog-100">Not queried</p>
+            <p className="mt-1 text-xs text-fog-300">
+              {dossier.hibp?.skipped ?? "Set HIBP_API_KEY to look up breaches. Umbra never emails the subject."}
+            </p>
+          </div>
+        ) : dossier.hibp.skipped ? (
+          <p className="text-sm text-signal-blocked">{dossier.hibp.skipped}</p>
+        ) : dossier.hibp.breachCount ? (
+          <div>
+            <p className="text-sm text-signal-found">{dossier.hibp.breachCount} breach record(s)</p>
+            <ul className="mt-2 max-h-28 space-y-1 overflow-auto font-mono text-[11px] text-fog-300">
+              {dossier.hibp.breaches.slice(0, 12).map((b) => (
+                <li key={b.name}>
+                  {b.title || b.name}
+                  {b.breachDate ? ` · ${b.breachDate}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-sm text-fog-100">No breaches reported for this address.</p>
+        )}
+      </Card>
       <Card icon={<UserRound className="h-4 w-4" />} title="Pivots">
         {pivots.length === 0 && <p className="text-sm text-fog-500">No handle pivots</p>}
         <ul className="max-h-36 space-y-1 overflow-auto font-mono text-xs text-fog-300">
@@ -949,39 +1037,47 @@ function PhoneCards({ dossier }: { dossier: PhoneDossier }) {
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <Card icon={<Phone className="h-4 w-4" />} title="E.164">
         <p className="font-mono text-sm">{dossier.e164 ?? dossier.raw}</p>
-        <p className="mt-1 text-xs text-fog-500">
+        <p className="mt-1 text-xs text-fog-300">
           {dossier.valid ? "valid" : dossier.possible ? "possible" : "invalid"}
           {dossier.internationalFormat ? ` · ${dossier.internationalFormat}` : ""}
         </p>
-        {dossier.nationalFormat && <p className="font-mono text-[11px] text-fog-500">{dossier.nationalFormat}</p>}
+        {dossier.nationalFormat && <p className="font-mono text-[11px] text-fog-300">{dossier.nationalFormat}</p>}
+        {dossier.rfc3966 && <p className="font-mono text-[11px] text-fog-300">{dossier.rfc3966}</p>}
       </Card>
       <Card icon={<Globe className="h-4 w-4" />} title="Region / type">
         <p className="text-sm">{dossier.regionHint ?? dossier.country ?? "unknown region"}</p>
-        <p className="mt-1 font-mono text-[11px] text-fog-500">
+        <p className="mt-1 font-mono text-[11px] text-fog-300">
           {dossier.type ?? "type unknown"}
           {dossier.countryCallingCode ? ` · +${dossier.countryCallingCode}` : ""}
         </p>
+        {dossier.timezones.length > 0 && (
+          <p className="mt-1 font-mono text-[11px] text-fog-300">{dossier.timezones.join(", ")}</p>
+        )}
       </Card>
       <Card icon={<Fingerprint className="h-4 w-4" />} title="Carrier hint">
         <p className="text-sm">{dossier.carrierHint ?? "No live carrier lookup"}</p>
         {dossier.lookups.map((l) => (
-          <p key={l.source} className="mt-1 font-mono text-[11px] text-fog-500">
+          <p key={l.source} className="mt-1 font-mono text-[11px] text-fog-300">
             {l.source}: {l.detail ?? l.status}
           </p>
         ))}
       </Card>
-      <Card icon={<Share2 className="h-4 w-4" />} title="Public links">
-        {dossier.e164 && (
-          <a
-            className="text-sm text-accent hover:underline"
-            href={`https://duckduckgo.com/?q=${encodeURIComponent(`"${dossier.e164}"`)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            DuckDuckGo “{dossier.e164}”
-          </a>
-        )}
-        <p className="mt-2 text-[11px] text-fog-500">No SMS. Optional Twilio/Numverify keys add carrier names.</p>
+      <Card icon={<Share2 className="h-4 w-4" />} title="Public pivots">
+        <div className="flex flex-wrap gap-1.5">
+          {(dossier.openLinks ?? []).map((l) => (
+            <a
+              key={l.label}
+              className="inline-flex items-center gap-1 rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fog-100 hover:border-accent"
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink className="h-3 w-3" />
+              {l.label}
+            </a>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-fog-300">No SMS. Optional Twilio/Numverify keys add carrier names.</p>
       </Card>
     </div>
   );

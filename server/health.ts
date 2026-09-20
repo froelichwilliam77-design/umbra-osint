@@ -3,6 +3,7 @@ import { umbraVersion } from "./version.ts";
 import { impersonateHealth } from "./curl-impersonate.ts";
 import { scanLimitsPublic } from "./limits.ts";
 import { memorySnapshot } from "./memory.ts";
+import { casesPersistMode } from "./cases.ts";
 import {
   playwrightAvailable,
   playwrightConcurrent,
@@ -19,6 +20,7 @@ export async function healthPayload() {
     warning: AUTHORIZED_USE,
     proxy: Boolean(process.env.UMBRA_PROXY),
     hibp: Boolean(process.env.HIBP_API_KEY?.trim()),
+    cases: { persist: casesPersistMode() },
     playwright: {
       enabled: playwrightEnabled(),
       available: await playwrightAvailable(),

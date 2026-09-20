@@ -2,6 +2,7 @@ import type { LedgerRow } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
 import { type OracleVerdict } from "./oracles.ts";
 import { fetchOracle, jsonStatus, wrapHttp } from "./mail-oracle-http.ts";
+import { lookupHibp } from "./hibp.ts";
 
 type OracleFn = (email: string) => Promise<{ verdict: OracleVerdict; extras: Partial<LedgerRow> }>;
 
@@ -361,48 +362,40 @@ const handlers: Record<string, OracleFn> = {
     });
   },
   hibp: async (email) => {
-    const key = process.env.HIBP_API_KEY?.trim();
-    if (!key) {
+    const dossier = await lookupHibp(email);
+    const url = `https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}`;
+    if (!dossier.enabled) {
       return {
-        verdict: {
-          status: "escalate",
-          reason: "Have I Been Pwned skipped — set HIBP_API_KEY for live breach lookup.",
-        },
-        extras: { url: "https://haveibeenpwned.com/api/v3/breachedaccount", method: "GET" },
+        verdict: { status: "escalate", reason: dossier.skipped ?? "Have I Been Pwned skipped — set HIBP_API_KEY." },
+        extras: { url, method: "GET" },
       };
     }
-    const url = `https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}?truncateResponse=false`;
-    const res = await fetchOracle({
-      url,
-      headers: { "hibp-api-key": key, "user-agent": "Umbra-OSINT" },
-      accept: "application/json",
-    });
-    if (res.status === 404) {
+    if (dossier.skipped) {
+      return {
+        verdict: { status: "blocked", reason: dossier.skipped },
+        extras: { url, method: "GET" },
+      };
+    }
+    if (dossier.breachCount === 0) {
       return {
         verdict: { status: "miss", reason: "HIBP reports no breaches for this address." },
-        extras: { url, method: "GET", httpStatus: 404, latencyMs: res.latencyMs },
+        extras: { url, method: "GET", httpStatus: 404 },
       };
     }
-    if (res.status === 200) {
-      let count = 0;
-      try {
-        count = (JSON.parse(res.body) as unknown[]).length;
-      } catch {
-        count = 0;
-      }
-      return {
-        verdict: { status: "found", reason: `HIBP returned ${count} breach record(s).` },
-        extras: {
-          url,
-          method: "GET",
-          httpStatus: 200,
-          latencyMs: res.latencyMs,
-          metadata: { extra: { breaches: count } },
-          bodyExcerpt: excerpt(res.body, "Name"),
-        },
-      };
-    }
-    return wrapHttp(res, url, "GET");
+    const names = dossier.breaches.slice(0, 8).map((b) => b.title || b.name);
+    return {
+      verdict: {
+        status: "found",
+        reason: `HIBP returned ${dossier.breachCount} breach record(s)${names.length ? `: ${names.join(", ")}` : ""}.`,
+      },
+      extras: {
+        url,
+        method: "GET",
+        httpStatus: 200,
+        metadata: { extra: { breaches: dossier.breachCount } },
+        bodyExcerpt: names.join(", "),
+      },
+    };
   },
 };
 
