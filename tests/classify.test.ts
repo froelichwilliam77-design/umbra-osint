@@ -109,6 +109,40 @@ describe("classifyResponse", () => {
     expect(r.status).toBe("escalate");
   });
 
+  it("treats HTTP 401 as blocked, not miss or escalate", () => {
+    const r = classifyResponse(spec, {
+      status: 401,
+      body: "login required",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+    });
+    expect(r.status).toBe("blocked");
+  });
+
+  it("resolves Keybase-style exist substring of missing-string as miss", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: '"them":', m_code: 200, m_string: '"them":null' },
+      {
+        status: 200,
+        body: '{"status":{"code":0},"them":null}',
+        headers: {},
+        requestedUrl: "https://keybase.io/_/api/1.0/user/lookup.json?username=nope",
+        account: "nope",
+      },
+    );
+    expect(r.status).toBe("miss");
+  });
+
+  it("recovers exist body when the status code drifted (e_code 200, got 201)", () => {
+    const r = classifyResponse(spec, {
+      status: 201,
+      body: '{"login":"octocat"}',
+      headers: {},
+      requestedUrl: "https://api.github.com/users/octocat",
+    });
+    expect(r.status).toBe("found");
+  });
+
   it("treats HTTP 404 as miss even when missing-string drifted", () => {
     const r = classifyResponse(spec, {
       status: 404,

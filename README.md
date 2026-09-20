@@ -2,7 +2,7 @@
 
 Public-OSINT workstation for **handle**, **mail**, **host**, and **phone** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
-Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1003** unique platforms; 963 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
+Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
 
 Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, handle + host pivots, open-in OSINT links) and runs **161** silent registration oracles — never SMTP or password-reset mail. Have I Been Pwned is skipped entirely unless `HIBP_API_KEY` is set.
 
@@ -104,16 +104,18 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 
 Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 
-- 403, 429, 451, CAPTCHA, and WAF signatures are **blocked**, never a miss.
-- HTTP 404/410 without an exist match is **miss** with a reason.
+- 403, 429, 451, 401, CAPTCHA, and WAF signatures are **blocked**, never a miss.
+- HTTP 404/410/400 without an exist match is **miss** with a reason.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
-- Both exist and missing conditions matching — or neither — is **escalate**.
+- Exist/missing substring collisions (e.g. `"them":` vs `"them":null`) resolve to the more specific side.
+- Mail oracles recover unclassified JSON flags, taken/available copy, CSRF, and signup HTML into found/miss/blocked. Escalate is the last resort.
+- Chronically CSRF-dead oracles (X, Instagram, Facebook, TikTok, Myspace) are **quarantined** as blocked and not probed.
 
 ### Anti-bot (what actually ships)
 
 - Chrome-matched headers, UA rotation, HTTP/2 via undici, per-host workers, jitter, `Retry-After` on 429/503.
-- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it.
-- **Playwright** is optional and off by default. `UMBRA_PLAYWRIGHT=1` plus `npx playwright install chromium` retries blocked/escalate Cloudflare/CAPTCHA rows with an authorized public **GET** only (no logins, no credential stuffing, SSRF still applies). Cap with `UMBRA_PLAYWRIGHT_MAX` (default 20).
+- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts, **all silent mail oracles**, and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it.
+- **Playwright** GET-only escalation for Cloudflare/CAPTCHA rows (no logins, no credential stuffing, SSRF still applies). Cap with `UMBRA_PLAYWRIGHT_MAX` (default 20). **On by default in Docker/Railway** (`UMBRA_PLAYWRIGHT=1`, `NODE_ENV=production`). Locally it stays off unless you set `UMBRA_PLAYWRIGHT=1` after `npx playwright install chromium`. `UMBRA_PLAYWRIGHT=0` disables it.
 
 Local without Docker: TLS impersonation is **partial** until `curl-impersonate` is on `PATH` or `UMBRA_CURL_IMPERSONATE` points at `curl_chrome146`. Check `GET /api/health` (`tlsImpersonation`, `tlsBinary`, `tlsNote`).
 
@@ -132,7 +134,7 @@ See [`schema/README.md`](schema/README.md).
 | File | Role |
 | --- | --- |
 | `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot (717) |
-| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (265), dual-condition |
+| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (267), dual-condition |
 | `schema/sites.curated.yaml` | Extra handle targets + JSON extractors |
 | `schema/oracles.yaml` | Silent mail oracles |
 | `schema/disposable-domains.txt` | Burn-mail flags |
@@ -171,8 +173,8 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `HIBP_API_KEY` | unset | Optional breach oracle (skipped silently if unset) |
 | `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
-| `UMBRA_PLAYWRIGHT` | unset | `1` to escalate blocked/CAPTCHA GETs with Chromium |
-| `UMBRA_PLAYWRIGHT_MAX` | `20` | Max Playwright retries per handle scan |
+| `UMBRA_PLAYWRIGHT` | `1` in Docker/production; off locally | `1` to retry blocked/CAPTCHA GETs with Chromium; `0` to disable |
+| `UMBRA_PLAYWRIGHT_MAX` | `20` | Max Playwright GET retries per process |
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
 | `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
@@ -185,8 +187,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 # https://github.com/lexiforest/curl-impersonate/releases
 export UMBRA_CURL_IMPERSONATE=/path/to/curl_chrome146
 
-# Playwright (optional, large). GET-only escalation for CF/CAPTCHA rows.
-npm install -D playwright
+# Playwright (optional locally, default-on in Docker/Railway). GET-only escalation for CF/CAPTCHA rows.
 npx playwright install chromium
 UMBRA_PLAYWRIGHT=1 npm start
 ```

@@ -423,6 +423,9 @@ export function matchTakenPhrases(body: string, extraTaken: string[] = []): Orac
     "someone is already registered",
     "that email is already",
     "email address is already",
+    "not available",
+    "is unavailable",
+    "already associated",
     ...extraTaken,
   ];
   const lower = body.toLowerCase();

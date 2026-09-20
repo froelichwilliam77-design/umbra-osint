@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUTHORIZED_USE } from "../shared/constants.ts";
 import type { ScanMode } from "../shared/types.ts";
+import { umbraVersion } from "./version.ts";
 import { impersonateHealth } from "./curl-impersonate.ts";
 import { renderExport } from "./exports.ts";
 import { playwrightAvailable, playwrightEnabled, playwrightMax } from "./playwright-pool.ts";
@@ -25,7 +26,7 @@ app.get("/api/health", async () => {
   return {
     ok: true,
     name: "umbra",
-    version: "1.2.0",
+    version: umbraVersion(),
     warning: AUTHORIZED_USE,
     proxy: Boolean(process.env.UMBRA_PROXY),
     hibp: Boolean(process.env.HIBP_API_KEY?.trim()),

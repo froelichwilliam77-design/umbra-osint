@@ -12,9 +12,8 @@ import { extractMetadata } from "./extract.ts";
 import { fetchPublic, jitter, retryAfterMs, type HttpRequest, type HttpResponse } from "./http.ts";
 import {
   fetchPlaywright,
-  playwrightEnabled,
-  playwrightMax,
   shouldEscalateBrowser,
+  takePlaywrightSlot,
 } from "./playwright-pool.ts";
 import { categoryOf, loadSchema, sitesForScan, type WmnSite } from "./schema.ts";
 
@@ -74,7 +73,10 @@ async function fetchProbe(req: HttpRequest, protection?: string[]): Promise<Http
   if (
     impersonateAvailable() &&
     !impersonateFirst &&
-    (res.status === 403 || res.status === 429 || /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000)))
+    (res.status === 401 ||
+      res.status === 403 ||
+      res.status === 429 ||
+      /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000)))
   ) {
     const r = await fetchImpersonate(req);
     if (r.status > 0) return r;
@@ -231,19 +233,14 @@ export async function runHandleScan(
 ): Promise<void> {
   const sites = sitesForScan(opts.includeNsfw);
   const pool = new HostPool({ global: opts.workers, perHost: opts.perHost });
-  let playwrightLeft = playwrightEnabled() ? playwrightMax() : 0;
   await Promise.all(
     sites.map((site) =>
       pool.schedule(hostFromUrl(site.uri_check), async () => {
         const protectedHost = Boolean(site.protection?.length);
         await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
         let row = await probeSite(scanId, handle, site);
-        if (
-          playwrightLeft > 0 &&
-          shouldEscalateBrowser(row.status, row.reason, row.method)
-        ) {
-          playwrightLeft -= 1;
-          const { url, pretty, method, headers } = materialize(site, handle);
+        if (shouldEscalateBrowser(row.status, row.reason, row.method) && takePlaywrightSlot()) {
+          const { url, pretty, headers } = materialize(site, handle);
           const pw = await fetchPlaywright({
             url,
             method: "GET",

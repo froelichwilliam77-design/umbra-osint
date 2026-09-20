@@ -19,7 +19,23 @@ let chromiumLauncher: ((opts: { headless: boolean }) => Promise<PlaywrightBrowse
 
 export function playwrightEnabled(): boolean {
   const raw = (process.env.UMBRA_PLAYWRIGHT ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "on";
+  if (raw === "0" || raw === "false" || raw === "off") return false;
+  if (raw === "1" || raw === "true" || raw === "on") return true;
+  // Unset: default-on in production Docker/Railway images once Chromium is present.
+  return process.env.NODE_ENV === "production";
+}
+
+let playwrightUsed = 0;
+
+export function takePlaywrightSlot(): boolean {
+  if (!playwrightEnabled()) return false;
+  if (playwrightUsed >= playwrightMax()) return false;
+  playwrightUsed += 1;
+  return true;
+}
+
+export function playwrightSlotsUsed(): number {
+  return playwrightUsed;
 }
 
 export function playwrightMax(): number {

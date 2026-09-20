@@ -312,6 +312,7 @@ export interface SchemaStats {
   handleSites: number;
   categories: Record<string, number>;
   oracles: number;
+  oraclesQuarantined?: number;
   disposableDomains: number;
   wmnImportedAt?: string;
   wmnSource?: string;

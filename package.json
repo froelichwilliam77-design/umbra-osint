@@ -1,6 +1,6 @@
 {
   "name": "umbra",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "Umbra — OSINT suite for handle, mail, host, and phone reconnaissance",
@@ -26,6 +26,7 @@
     "jpeg-js": "^0.4.4",
     "libphonenumber-js": "^1.13.13",
     "p-limit": "^6.2.0",
+    "playwright": "^1.55.0",
     "pngjs": "^7.0.0",
     "socks": "^2.8.4",
     "tsx": "^4.19.3",
