@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   caseFromScan,
+  casesDir,
+  casesPersistMode,
   compareCases,
   deleteCase,
   exportCase,
@@ -115,5 +117,20 @@ describe("saved cases", () => {
     );
     expect(same.both).toHaveLength(1);
     expect(same.onlyA).toHaveLength(0);
+  });
+
+  it("creates a missing cases directory when the path is writable", () => {
+    const nested = join(dir, "missing", "cases");
+    process.env.UMBRA_CASES_DIR = nested;
+    expect(casesDir()).toBe(nested);
+    expect(casesPersistMode()).toBe("volume");
+  });
+
+  it("falls back to memory when the volume path is not writable", () => {
+    const blocker = join(dir, "not-a-dir");
+    writeFileSync(blocker, "x");
+    process.env.UMBRA_CASES_DIR = blocker;
+    expect(casesDir()).toBeNull();
+    expect(casesPersistMode()).toBe("memory");
   });
 });

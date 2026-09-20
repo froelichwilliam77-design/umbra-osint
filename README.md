@@ -81,10 +81,10 @@ Target: a mail scan and a lean handle scan complete on 1 GB without an OOM resta
 
 Railway disks are ephemeral unless you attach a volume. In the service **Settings → Volumes**:
 
-1. Add a volume, mount path **`/data`**.
+1. Add a volume, mount path **`/data`**. Do **not** add `VOLUME` to the Dockerfile — Railway's Metal builder rejects it and the image never builds.
 2. Cases write JSON to `/data/cases` (or `UMBRA_CASES_DIR`). Watches/alerts live beside them (`_watches`).
 3. `GET /api/health` → `cases.persist: "volume"` and `watches.persist: "volume"` when the mount is writable.
-4. Without a volume the API stays in-memory; the UI falls back to IndexedDB so a phone still has local cases.
+4. If `/data` is missing or not writable, the process still boots: it creates the directory when it can, otherwise persist is in-memory and the UI uses IndexedDB.
 
 Docker Compose already mounts named volume `umbra-data` at `/data`.
 

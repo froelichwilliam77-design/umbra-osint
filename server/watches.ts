@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   WATCH_DEFAULT_INTERVAL_MS,
@@ -27,16 +27,22 @@ function canWrite(dir: string): boolean {
   }
 }
 
+/** Writable watch JSON dir, or null. Never throws if /data is missing. */
 export function watchesDir(): string | null {
-  const env = process.env.UMBRA_WATCHES_DIR?.trim();
-  if (env) return canWrite(env) ? env : null;
-  const cases = casesDir();
-  if (cases) {
-    const nested = join(cases, "_watches");
+  try {
+    const env = process.env.UMBRA_WATCHES_DIR?.trim();
+    if (env) return canWrite(env) ? env : null;
+    const cases = casesDir();
+    if (cases) {
+      const nested = join(cases, "_watches");
+      return canWrite(nested) ? nested : null;
+    }
+    const mount = process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim() || "/data";
+    const nested = join(mount, "watches");
     return canWrite(nested) ? nested : null;
+  } catch {
+    return null;
   }
-  if (existsSync("/data") && canWrite("/data/watches")) return "/data/watches";
-  return null;
 }
 
 export function alertsDir(): string | null {

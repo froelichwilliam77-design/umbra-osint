@@ -47,8 +47,11 @@ ENV UMBRA_MEM_HARD_MB=600
 ENV NODE_OPTIONS=--max-old-space-size=384
 EXPOSE 43180
 
-# Persist cases/watches across deploys: Railway → service → Volumes → Mount path `/data`
-VOLUME ["/data"]
+# Directory exists in the image so the process can mkdir cases/watches even without a mount.
+# Do NOT add a Dockerfile VOLUME — Railway's Metal builder rejects it
+# ("dockerfile invalid: docker VOLUME is not supported, use Railway Volumes").
+# Attach the named volume in Railway Settings → Volumes, mount path `/data`.
+RUN mkdir -p /data
 
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.
 # curl-impersonate (Chrome TLS) and Playwright Chromium are child processes — not extra services.
