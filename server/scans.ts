@@ -201,7 +201,6 @@ export async function startScan(input: {
           ? `Lean mail: high-signal oracles first; quarantined and chronically blocked oracles skipped (${siteCount} checks).`
           : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe).`
         : undefined;
-  if (profileNote) preflight.notes = [...preflight.notes, profileNote];
 
   const id = randomUUID();
   const summary: ScanSummary = {

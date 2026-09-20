@@ -46,6 +46,9 @@ Live console screenshots:
 - Host `github.com` — [docs/screenshots/host_github_rdap_dns.png](docs/screenshots/host_github_rdap_dns.png)
 - Phone `+14155552671` — [docs/screenshots/phone_e164_dossier.png](docs/screenshots/phone_e164_dossier.png)
 - PWA / mobile — [docs/screenshots/pwa_mobile_install.png](docs/screenshots/pwa_mobile_install.png)
+- v1.6 likely hits + progress — [docs/screenshots/v16_mail_likely_hits.webp](docs/screenshots/v16_mail_likely_hits.webp)
+- v1.6 cases panel — [docs/screenshots/v16_cases_panel.webp](docs/screenshots/v16_cases_panel.webp)
+- v1.6 phone public pivots — [docs/screenshots/v16_phone_pivots.webp](docs/screenshots/v16_phone_pivots.webp)
 
 ### First recon
 
