@@ -150,3 +150,67 @@ oracles:
     name: Venmo
     category: finance
     handler: venmo
+  - id: gmail
+    name: Gmail / Google
+    category: identity
+    handler: gmail
+  - id: yahoo
+    name: Yahoo
+    category: identity
+    handler: yahoo
+  - id: zoho
+    name: Zoho
+    category: business
+    handler: zoho
+  - id: replit
+    name: Replit
+    category: coding
+    handler: replit
+  - id: codecademy
+    name: Codecademy
+    category: hobby
+    handler: codecademy
+  - id: buymeacoffee
+    name: Buy Me a Coffee
+    category: art
+    handler: buymeacoffee
+  - id: myfitnesspal
+    name: MyFitnessPal
+    category: health
+    handler: myfitnesspal
+  - id: nike
+    name: Nike
+    category: shopping
+    handler: nike
+  - id: komoot
+    name: Komoot
+    category: health
+    handler: komoot
+  - id: canva
+    name: Canva
+    category: art
+    handler: canva
+  - id: freelancer
+    name: Freelancer
+    category: business
+    handler: freelancer
+  - id: anydo
+    name: Any.do
+    category: tech
+    handler: anydo
+  - id: deliveroo
+    name: Deliveroo
+    category: shopping
+    handler: deliveroo
+  - id: xing
+    name: XING
+    category: business
+    handler: xing
+  - id: envato
+    name: Envato
+    category: art
+    handler: envato
+  - id: deezer
+    name: Deezer
+    category: music
+    handler: deezer

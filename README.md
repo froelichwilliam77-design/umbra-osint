@@ -2,11 +2,11 @@
 
 Public-OSINT workstation for **handle**, **mail**, and **host** reconnaissance. One search bar, auto-detected input, a live classified ledger, and exports.
 
-Umbra is not a mock. Handle mode walks the WhatsMyName-scale site registry (700+ platforms, plus a curated overlay: Wikipedia, Stack Overflow, Hugging Face, LinkedIn, Mastodon, Bluesky, Codeberg, and more). Dual-condition matching is case-insensitive; 403/429/CAPTCHA stay **blocked**; soft-404 bodies stay **miss** with a reason; per-site username regex skips invalid handles.
+Umbra is not a mock. Handle mode walks the WhatsMyName-scale site registry (700+ platforms, plus a curated overlay: Wikipedia, Stack Overflow, Hugging Face, LinkedIn, Mastodon, Bluesky, Codeberg, Docker Hub, RubyGems, Lichess, Launchpad, and more). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason; per-site username regex skips invalid handles.
 
-Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC, handle pivots) and runs silent registration oracles — never SMTP or password-reset mail.
+Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, handle pivots) and runs silent registration oracles — never SMTP or password-reset mail.
 
-Host mode pulls RDAP (registrar, dates, DNSSEC, abuse contact), DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC, `security.txt`, HTTPS title/headers/HSTS, and the TLS certificate subject + SAN.
+Host mode pulls RDAP (registrar, dates, DNSSEC, abuse contact, nameservers), DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS title/headers/HSTS/CSP, and the TLS certificate subject + SAN + days remaining.
 
 **Authorized use only.** Run it against identifiers you are allowed to investigate. Umbra never sends SMTP or password-reset mail to a subject. Server-side fetches refuse private, loopback, link-local, and metadata addresses (SSRF).
 
@@ -43,9 +43,9 @@ Live console screenshots from a local run:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). A local upgrade run scored **163 found** / 256 miss / 131 blocked on 686 clearnet sites (first ship was ~121 found).
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles + **Pivot local-part as handle**. Expect MX + SPF/DMARC + M365 tenant + GitHub taken; 403/429 oracles stay **blocked**.
-4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA, SPF/DMARC, security.txt, HTTPS title/headers, TLS cert SAN.
+2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). This upgrade: **738** handle sites (699 clearnet). Local run: **157 found** / 326 miss / 140 blocked / 62 escalate on 699 clearnet (main README cited 163 found on 686, with fewer 404s classified as miss). GitHub is found with matcher recovery + metadata.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **53** silent oracles + **Pivot local-part as handle**. Local run: MX + SPF/DMARC + DKIM (`google, selector1, k1, s1, s2`) + M365 Managed + GitHub taken; 403/429 oracles stay **blocked**.
+4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA/TXT, SPF/DMARC/DKIM, parsed security.txt (HackerOne), HTTPS title/headers, TLS cert SAN + days remaining. Local run: **13 found** / 2 miss (AAAA, BIMI) on 15 ledger rows.
 5. Export the ledger as Markdown / JSON / JSONL / CSV / HTML.
 
 ## Railway (public HTTPS)
@@ -86,17 +86,19 @@ UMBRA_PROXY=socks5://127.0.0.1:9050 npm start
 
 | Mode | Pre-flight | Work |
 | --- | --- | --- |
-| **Handle** | length/charset regex | WhatsMyName + curated YAML. Dual-condition match (`e_code`+`e_string` / `m_code`+`m_string`). |
-| **Mail** | format, disposable list, MX | Identity dossier (provider, plus-address, role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC, handle pivots) + silent oracles. |
-| **Host** | hostname sanity | RDAP, DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC, security.txt, HTTPS headers + `<title>`, TLS cert SAN. |
+| **Handle** | length/charset regex | WhatsMyName + curated YAML. Dual-condition match (`e_code`+`e_string` / `m_code`+`m_string`), JSON account recovery, 404/410 miss-with-reason. |
+| **Mail** | format, disposable list, MX | Identity dossier (provider, plus-address, role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, handle pivots) + silent oracles. |
+| **Host** | hostname sanity | RDAP, DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC/DKIM/BIMI, parsed security.txt, HTTPS headers + `<title>`, TLS cert SAN. |
 | **Auto** | — | `@` → mail; dotted hostname with a TLD → host; otherwise handle. |
 
 ### Classification
 
 Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 
-- 403, 429, CAPTCHA, and WAF signatures are **blocked**, never a miss.
+- 403, 429, 451, CAPTCHA, and WAF signatures are **blocked**, never a miss.
+- HTTP 404/410 without an exist match is **miss** with a reason, even if `m_string` drifted.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
+- JSON bodies that name the account recover stale WhatsMyName `e_string`s as **found**.
 - Both exist and missing conditions matching — or neither — is **escalate**.
 
 ### Anti-bot (what actually ships)
@@ -139,7 +141,7 @@ NSFW WhatsMyName category (`xx NSFW xx`) is excluded unless you enable **include
 
 ## Tests
 
-Vitest covers dual-condition matching (including case-insensitive body strings), 403/429/CAPTCHA classification, redirect-as-miss, redirect-as-evidence, soft-404, per-site username regex skips, handle preflight, email dossier basics (disposable, role, plus-address, name patterns, pivots, SHA-256), SPF/DMARC parse, and SSRF blocks (loopback, RFC1918, IPv6 ULA, `file:`, credentials).
+Vitest covers dual-condition matching (including case-insensitive / whitespace-tolerant body strings), 403/429/451/CAPTCHA classification, redirect-as-miss, redirect-as-evidence, soft-404, HTTP 404 fallback, JSON account recovery, empty JSON collections, per-site username regex skips, handle preflight, email dossier basics (disposable, role, plus-address, name patterns, pivots, SHA-256), SPF/DMARC/security.txt parse, metadata/JSON-LD extractors, schema/oracle integrity, and SSRF blocks (loopback, RFC1918, IPv6 ULA, `file:`, credentials).
 
 ## Environment
 

@@ -37,6 +37,13 @@ describe("email dossier basics", () => {
     expect(a.patterns).toContain("trailing-year");
     expect(a.possibleNames[0]).toBe("Ada Lovelace");
     expect(a.trailingYear).toBe("1984");
+    expect(a.trailingDigits).toBe("1984");
+  });
+
+  it("analyzes underscore first_last", () => {
+    const a = analyzeLocalPart("ada_lovelace");
+    expect(a.patterns).toContain("first_last");
+    expect(a.possibleNames[0]).toBe("Ada Lovelace");
   });
 });
 
@@ -46,6 +53,8 @@ describe("mail pivots and hashes", () => {
     expect(pivots).toContain("ada.lovelace1984");
     expect(pivots).toContain("ada.lovelace");
     expect(pivots).toContain("adalovelace");
+    expect(pivots).toContain("ada_lovelace");
+    expect(pivots).toContain("alovelace");
   });
 
   it("hashes Gravatar SHA-256 of the normalized address", () => {

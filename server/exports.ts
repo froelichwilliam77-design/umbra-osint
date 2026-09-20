@@ -73,6 +73,9 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- Provider: ${d.providerGuess ?? "unknown"}`,
       `- Disposable: ${d.disposable}`,
       `- MX: ${d.mx.map((m) => m.exchange).join(", ") || "none"}`,
+      `- SPF: ${d.domainSpf[0]?.raw ?? "none"}`,
+      `- DMARC: ${d.domainDmarc[0]?.raw ?? "none"}`,
+      `- DKIM: ${d.dkim.map((x) => x.selector).join(", ") || "none"}`,
       `- Gravatar: ${d.gravatar?.exists ? d.gravatar.displayName ?? "yes" : "no"}`,
       `- Local-part patterns: ${d.localPartAnalysis.patterns.join(", ") || "none"}`,
       "",
@@ -88,8 +91,10 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- MX: ${d.dns.mx.map((m) => m.exchange).join(", ") || "none"}`,
       `- SPF: ${d.spf[0]?.raw ?? "none"}`,
       `- DMARC: ${d.dmarc[0]?.raw ?? "none"}`,
+      `- DKIM: ${d.dkim.map((x) => x.selector).join(", ") || "none"}`,
       `- RDAP registrar: ${d.rdap?.registrar ?? "unknown"}`,
       `- HTTPS title: ${d.https?.title ?? "n/a"}`,
+      `- Cert SAN: ${d.cert?.san.slice(0, 8).join(", ") || "n/a"}`,
       "",
     );
   }

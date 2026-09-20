@@ -106,35 +106,52 @@ export function analyzeLocalPart(localPart: string) {
   const patterns: string[] = [];
   const possibleNames: string[] = [];
   let trailingYear: string | undefined;
+  let trailingDigits: string | undefined;
 
   if (plusTag) patterns.push("plus-address");
-  if (base.includes(".")) {
-    patterns.push("dotted");
-    const stripped = base.replace(/(19|20)\d{2}$/, "");
-    const parts = stripped.split(".").filter(Boolean);
-    if (parts.length === 2 && parts.every((p) => /^[a-z]+$/i.test(p))) {
-      patterns.push("first.last");
-      possibleNames.push(`${title(parts[0])} ${title(parts[1])}`);
-    }
+
+  const digitSuffix = base.match(/(\d+)$/);
+  if (digitSuffix) {
+    trailingDigits = digitSuffix[1];
+    patterns.push("trailing-digits");
   }
-  if (base.includes("_") || base.includes("-")) patterns.push("separated");
   const year = base.match(/(19|20)\d{2}$/);
   if (year) {
     trailingYear = year[0];
     patterns.push("trailing-year");
   }
-  if (/^[a-z]\.?[a-z]+$/i.test(base.replace(/\d+$/, ""))) {
+
+  const stripped = base.replace(/\d+$/, "");
+  const sep = stripped.includes(".") ? "." : stripped.includes("_") ? "_" : stripped.includes("-") ? "-" : "";
+  if (sep) {
+    patterns.push(sep === "." ? "dotted" : "separated");
+    const parts = stripped.split(sep).filter(Boolean);
+    if (parts.length === 2 && parts.every((p) => /^[a-z]+$/i.test(p))) {
+      patterns.push(sep === "." ? "first.last" : sep === "_" ? "first_last" : "first-last");
+      possibleNames.push(`${title(parts[0])} ${title(parts[1])}`);
+    } else if (parts.length === 2 && /^[a-z]$/i.test(parts[0]) && /^[a-z]+$/i.test(parts[1])) {
+      patterns.push("initial.last");
+      possibleNames.push(`${title(parts[0])} ${title(parts[1])}`);
+    }
+  } else if (/^[a-z][a-z]+$/i.test(stripped) && stripped.length >= 6) {
+    // flast: jsmith — too ambiguous to name, but flag the shape
+    if (/^[a-z][a-z]{2,}$/i.test(stripped)) patterns.push("compact");
+  }
+  if (/^[a-z]\.[a-z]{2,}$/i.test(stripped)) {
     patterns.push("initial-last");
   }
-  if (ROLE_LOCAL_PARTS.has(base.toLowerCase())) patterns.push("role");
+  if (ROLE_LOCAL_PARTS.has(base.toLowerCase()) || ROLE_LOCAL_PARTS.has(stripped.toLowerCase())) {
+    patterns.push("role");
+  }
 
   return {
     localPart,
     plusTag,
     base,
-    patterns,
+    patterns: [...new Set(patterns)],
     possibleNames,
     trailingYear,
+    trailingDigits,
   };
 }
 

@@ -127,6 +127,221 @@ sites:
     m_code: 404
     m_string: "not found"
     cat: coding
+  - name: Docker Hub
+    uri_check: https://hub.docker.com/v2/users/{account}/
+    uri_pretty: https://hub.docker.com/u/{account}
+    e_code: 200
+    e_string: '"id"'
+    m_code: 404
+    m_string: "Not Found"
+    cat: coding
+    known: ["library"]
+  - name: RubyGems
+    uri_check: https://rubygems.org/api/v1/profiles/{account}.json
+    uri_pretty: https://rubygems.org/profiles/{account}
+    e_code: 200
+    e_string: '"handle"'
+    m_code: 404
+    m_string: "Not Found"
+    cat: coding
+    known: ["qrush"]
+  - name: Packagist
+    uri_check: https://packagist.org/users/{account}.json
+    uri_pretty: https://packagist.org/users/{account}
+    e_code: 200
+    e_string: '"packages"'
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+    known: ["stof"]
+  - name: Lichess
+    uri_check: https://lichess.org/api/user/{account}
+    uri_pretty: https://lichess.org/@/{account}
+    e_code: 200
+    e_string: '"id"'
+    m_code: 404
+    m_string: "Not found"
+    cat: gaming
+    known: ["thibault"]
+  - name: Lobsters
+    uri_check: https://lobste.rs/u/{account}
+    uri_pretty: https://lobste.rs/u/{account}
+    e_code: 200
+    e_string: "Joined"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+    known: ["jcs", "pushcx"]
+  - name: Launchpad
+    uri_check: https://api.launchpad.net/1.0/~{account}
+    uri_pretty: https://launchpad.net/~{account}
+    e_code: 200
+    e_string: '"name"'
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+    known: ["mark"]
+  - name: Mojang
+    uri_check: https://api.mojang.com/users/profiles/minecraft/{account}
+    uri_pretty: https://namemc.com/profile/{account}
+    e_code: 200
+    e_string: '"id"'
+    m_code: 404
+    m_string: ""
+    cat: gaming
+    username_regex: "^[A-Za-z0-9_]{3,16}$"
+  - name: MyAnimeList
+    uri_check: https://api.jikan.moe/v4/users/{account}
+    uri_pretty: https://myanimelist.net/profile/{account}
+    e_code: 200
+    e_string: '"username"'
+    m_code: 404
+    m_string: "not found"
+    cat: hobby
+  - name: Roblox
+    uri_check: https://users.roblox.com/v1/usernames/users
+    uri_pretty: https://www.roblox.com/users/profile?username={account}
+    e_code: 200
+    e_string: '"requestedUsername"'
+    m_code: 200
+    m_string: '"data":[]'
+    cat: gaming
+    post_body: '{"usernames":["{account}"],"excludeBannedUsers":false}'
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+    username_regex: "^[A-Za-z0-9_]{3,20}$"
+  - name: Internet Archive
+    uri_check: https://archive.org/details/@{account}
+    uri_pretty: https://archive.org/details/@{account}
+    e_code: 200
+    e_string: "uploads"
+    m_code: 404
+    m_string: "Item not available"
+    cat: hobby
+  - name: Observable
+    uri_check: https://observablehq.com/@{account}
+    uri_pretty: https://observablehq.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "page not found"
+    cat: coding
+  - name: Hashnode
+    uri_check: https://hashnode.com/@{account}
+    uri_pretty: https://hashnode.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: blog
+  - name: Osu!
+    uri_check: https://osu.ppy.sh/users/{account}
+    uri_pretty: https://osu.ppy.sh/users/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: gaming
+  - name: TryHackMe
+    uri_check: https://tryhackme.com/p/{account}
+    uri_pretty: https://tryhackme.com/p/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: Letterboxd
+    uri_check: https://letterboxd.com/{account}/
+    uri_pretty: https://letterboxd.com/{account}/
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "page not found"
+    cat: hobby
+    username_regex: "^[A-Za-z0-9_]{2,30}$"
+  - name: SourceForge
+    uri_check: https://sourceforge.net/u/{account}/profile/
+    uri_pretty: https://sourceforge.net/u/{account}/profile/
+    e_code: 200
+    e_string: "User Profile"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: Last.fm
+    uri_check: https://www.last.fm/user/{account}
+    uri_pretty: https://www.last.fm/user/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "User not found"
+    cat: music
+  - name: SoundCloud
+    uri_check: https://soundcloud.com/{account}
+    uri_pretty: https://soundcloud.com/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "We can't find that user"
+    cat: music
+  - name: Discogs
+    uri_check: https://www.discogs.com/user/{account}
+    uri_pretty: https://www.discogs.com/user/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: music
+  - name: Telegram
+    uri_check: https://t.me/{account}
+    uri_pretty: https://t.me/{account}
+    e_code: 200
+    e_string: "tgme_page_extra"
+    m_code: 200
+    m_string: "If you have Telegram, you can contact"
+    cat: social
+    username_regex: "^[A-Za-z][A-Za-z0-9_]{4,31}$"
+  - name: YouTube
+    uri_check: https://www.youtube.com/@{account}
+    uri_pretty: https://www.youtube.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "This page isn't available"
+    cat: video
+  - name: Twitch
+    uri_check: https://www.twitch.tv/{account}
+    uri_pretty: https://www.twitch.tv/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: video
+    username_regex: "^[A-Za-z0-9_]{4,25}$"
+  - name: Substack
+    uri_check: https://substack.com/@{account}
+    uri_pretty: https://substack.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: blog
+  - name: Product Hunt
+    uri_check: https://www.producthunt.com/@{account}
+    uri_pretty: https://www.producthunt.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "Page not found"
+    cat: business
+  - name: CodePen
+    uri_check: https://codepen.io/{account}
+    uri_pretty: https://codepen.io/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "404"
+    cat: coding
 
 overrides:
   - name: Instagram
@@ -137,6 +352,7 @@ overrides:
     username_regex: "^[A-Za-z0-9._]{2,24}$"
   - name: Reddit
     username_regex: "^[A-Za-z0-9_-]{3,20}$"
+    m_string: "error\": 404"
   - name: GitHub (User)
     username_regex: "^[A-Za-z0-9-]{1,39}$"
 
@@ -206,3 +422,49 @@ extractors:
     avatar: profile_image
     bio: summary
     website: website_url
+  - site: Docker Hub
+    kind: json
+    displayName: username
+    avatar: gravatar_url
+  - site: RubyGems
+    kind: json
+    displayName: handle
+  - site: Packagist
+    kind: json
+    displayName: username
+  - site: Lichess
+    kind: json
+    displayName: username
+    bio: profile.bio
+    followers: perfs.blitz.rating
+  - site: Launchpad
+    kind: json
+    displayName: display_name
+    website: web_link
+  - site: Mojang
+    kind: json
+    displayName: name
+  - site: MyAnimeList
+    kind: json
+    displayName: data.username
+    avatar: data.images.jpg.image_url
+    bio: data.about
+    location: data.location
+  - site: Roblox
+    kind: json
+    displayName: data.0.requestedUsername
+  - site: Chess.com
+    kind: json
+    displayName: username
+    avatar: avatar
+    followers: followers
+    location: location
+  - site: Hacker News
+    kind: html
+  - site: LinkedIn (public)
+    kind: html
+  - site: YouTube
+    kind: html
+  - site: Telegram
+    kind: html
+
