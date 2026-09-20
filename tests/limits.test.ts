@@ -50,18 +50,18 @@ describe("concurrency caps", () => {
     delete process.env.UMBRA_WORKERS;
     delete process.env.UMBRA_WORKERS_MAX;
     delete process.env.UMBRA_PER_HOST;
-    expect(clampWorkers(undefined)).toBe(8);
-    expect(clampWorkers(48)).toBe(16);
-    expect(clampWorkers(1)).toBe(2);
+    expect(clampWorkers(undefined)).toBe(4);
+    expect(clampWorkers(48)).toBe(8);
+    expect(clampWorkers(1)).toBe(1);
     expect(clampPerHost(undefined)).toBe(1);
     expect(clampPerHost(8)).toBe(2);
   });
 
   it("caps concurrent curl-impersonate children", () => {
     delete process.env.UMBRA_CURL_MAX;
-    expect(impersonateMax()).toBe(3);
+    expect(impersonateMax()).toBe(1);
     process.env.UMBRA_CURL_MAX = "99";
-    expect(impersonateMax()).toBe(6);
+    expect(impersonateMax()).toBe(2);
   });
 
   it("HostPool respects global and per-host limits", async () => {

@@ -22,7 +22,7 @@ describe("scan cancel / replace", () => {
   });
 
   it("cancelScan marks a running scan cancelled and frees the slot", async () => {
-    const summary = await startScan({ query: "octocat", mode: "handle", replace: true });
+    const summary = await startScan({ query: "octocat", mode: "handle", replace: true, profile: "lean" });
     expect(summary.status).toBe("running");
     expect(runningScanCount()).toBe(1);
 
@@ -43,10 +43,10 @@ describe("scan cancel / replace", () => {
   });
 
   it("startScan with replace cancels the prior running scan", async () => {
-    const first = await startScan({ query: "alice", mode: "handle", replace: true });
+    const first = await startScan({ query: "alice", mode: "handle", replace: true, profile: "lean" });
     expect(first.status).toBe("running");
 
-    const second = await startScan({ query: "bob", mode: "handle", replace: true });
+    const second = await startScan({ query: "bob", mode: "handle", replace: true, profile: "lean" });
     expect(second.status).toBe("running");
     expect(second.id).not.toBe(first.id);
 
@@ -58,7 +58,7 @@ describe("scan cancel / replace", () => {
   });
 
   it("canStartScan with replace:false returns 409 while a scan runs", async () => {
-    const first = await startScan({ query: "carol", mode: "handle", replace: true });
+    const first = await startScan({ query: "carol", mode: "handle", replace: true, profile: "lean" });
     expect(first.status).toBe("running");
     const gate = canStartScan({ replace: false });
     expect(gate.ok).toBe(false);

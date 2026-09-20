@@ -7,6 +7,14 @@ describe("health + service worker", () => {
   it("reports playwright enabled:false with memory-safe limits after defaults", async () => {
     const prev = process.env.UMBRA_PLAYWRIGHT;
     delete process.env.UMBRA_PLAYWRIGHT;
+    delete process.env.UMBRA_WORKERS;
+    delete process.env.UMBRA_WORKERS_MAX;
+    delete process.env.UMBRA_CURL_MAX;
+    delete process.env.UMBRA_BODY_LIMIT;
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
     try {
       expect(playwrightEnabled()).toBe(false);
       const h = await healthPayload();
@@ -14,9 +22,13 @@ describe("health + service worker", () => {
       expect(h.playwright.enabled).toBe(false);
       expect(h.playwright.max).toBe(1);
       expect(h.playwright.concurrent).toBe(1);
-      expect(h.limits.workers).toBe(8);
+      expect(h.limits.workers).toBe(4);
       expect(h.limits.perHost).toBe(1);
-      expect(h.limits.curlMax).toBe(3);
+      expect(h.limits.curlMax).toBe(1);
+      expect(h.limits.memSoftMb).toBe(450);
+      expect(h.limits.memHardMb).toBe(600);
+      expect(h.limits.bodyLimit).toBe(48000);
+      expect(["lean", "full"]).toContain(h.limits.profile);
       expect(h.memory.pressure).toMatch(/ok|soft|hard/);
     } finally {
       if (prev === undefined) delete process.env.UMBRA_PLAYWRIGHT;

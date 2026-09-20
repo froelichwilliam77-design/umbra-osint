@@ -31,8 +31,16 @@ describe("TLS impersonation + Playwright flags", () => {
     }
   });
 
-  it("auto-impersonates mail oracles when a binary exists", () => {
+  it("does not auto-impersonate mail oracles unless the host is WAF-heavy", () => {
     const want = shouldImpersonate({ oracle: true, url: "https://github.com/signup_check/email" });
+    expect(want).toBe(false);
+  });
+
+  it("impersonates Cloudflare-protected hosts when a binary exists", () => {
+    const want = shouldImpersonate({
+      protection: ["cloudflare"],
+      url: "https://discord.com/api/v9/unique-username/username-attempt-unauthed",
+    });
     if (impersonateAvailable()) expect(want).toBe(true);
     else expect(want).toBe(false);
   });

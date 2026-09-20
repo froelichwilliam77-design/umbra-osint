@@ -1,5 +1,15 @@
 /** Memory-safe production defaults for 1 GB hosts (Railway hobby / free). */
 
+import {
+  FAST_TIER_SIZE,
+  LEAN_SITE_CAP,
+  inferDefaultProfile,
+  parseScanProfile,
+  type ScanProfile,
+} from "../shared/scan-limits.ts";
+
+export type { ScanProfile };
+
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
   const n = raw == null || raw.trim() === "" ? fallback : Number(raw);
@@ -8,20 +18,20 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 }
 
 /** Default global scan concurrency. 24 workers + curl-impersonate OOMs a 1 GB box. */
-export const DEFAULT_WORKERS = 8;
-export const MIN_WORKERS = 2;
-export const MAX_WORKERS_CAP = 16;
+export const DEFAULT_WORKERS = 4;
+export const MIN_WORKERS = 1;
+export const MAX_WORKERS_CAP = 8;
 
 export const DEFAULT_PER_HOST = 1;
 export const MAX_PER_HOST_CAP = 2;
 
 /** Concurrent curl-impersonate child processes. */
-export const DEFAULT_CURL_MAX = 3;
-export const MAX_CURL_CAP = 6;
+export const DEFAULT_CURL_MAX = 1;
+export const MAX_CURL_CAP = 2;
 
 /** Response body cap (bytes). Streamed; never buffer the full payload. */
-export const DEFAULT_BODY_LIMIT = 96_000;
-export const MAX_BODY_LIMIT = 256_000;
+export const DEFAULT_BODY_LIMIT = 48_000;
+export const MAX_BODY_LIMIT = 96_000;
 
 /** Playwright: off unless UMBRA_PLAYWRIGHT=1. One browser, killed after each GET. */
 export const DEFAULT_PLAYWRIGHT_MAX = 1;
@@ -31,8 +41,8 @@ export const PLAYWRIGHT_CONCURRENT = 1;
 export const DEFAULT_MAX_SCANS = 1;
 
 /** RSS watermarks (MiB). Railway hobby is 1024 MiB; abort before the cgroup OOM. */
-export const DEFAULT_MEM_SOFT_MB = 640;
-export const DEFAULT_MEM_HARD_MB = 800;
+export const DEFAULT_MEM_SOFT_MB = 450;
+export const DEFAULT_MEM_HARD_MB = 600;
 
 export function defaultWorkers(): number {
   return envInt("UMBRA_WORKERS", DEFAULT_WORKERS, MIN_WORKERS, MAX_WORKERS_CAP);
@@ -58,11 +68,11 @@ export function clampPerHost(n?: number): number {
 }
 
 export function impersonateMax(): number {
-  return envInt("UMBRA_CURL_MAX", DEFAULT_CURL_MAX, 1, MAX_CURL_CAP);
+  return envInt("UMBRA_CURL_MAX", DEFAULT_CURL_MAX, 0, MAX_CURL_CAP);
 }
 
 export function bodyLimit(): number {
-  return envInt("UMBRA_BODY_LIMIT", DEFAULT_BODY_LIMIT, 16_000, MAX_BODY_LIMIT);
+  return envInt("UMBRA_BODY_LIMIT", DEFAULT_BODY_LIMIT, 8_000, MAX_BODY_LIMIT);
 }
 
 export function playwrightRetryMax(): number {
@@ -85,18 +95,37 @@ export function scanStaleMs(): number {
 }
 
 export function memorySoftMb(): number {
+  if (process.env.UMBRA_RSS_SOFT_MB?.trim()) return envInt("UMBRA_RSS_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, 8192);
   return envInt("UMBRA_MEM_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, 8192);
 }
 
 export function memoryHardMb(): number {
+  if (process.env.UMBRA_RSS_HARD_MB?.trim()) return envInt("UMBRA_RSS_HARD_MB", DEFAULT_MEM_HARD_MB, 192, 8192);
   return envInt("UMBRA_MEM_HARD_MB", DEFAULT_MEM_HARD_MB, 192, 8192);
 }
 
 export function undiciConnections(): number {
-  return envInt("UMBRA_HTTP_CONNECTIONS", 16, 4, 48);
+  return envInt("UMBRA_HTTP_CONNECTIONS", 8, 4, 16);
+}
+
+export function defaultScanProfile(): ScanProfile {
+  return inferDefaultProfile(process.env);
+}
+
+export function resolveScanProfile(raw?: unknown): ScanProfile {
+  return parseScanProfile(raw, defaultScanProfile());
+}
+
+export function leanSiteCap(): number {
+  return envInt("UMBRA_LEAN_SITES", LEAN_SITE_CAP, 50, 400);
+}
+
+export function fastTierSize(): number {
+  return envInt("UMBRA_FAST_TIER", FAST_TIER_SIZE, 40, 300);
 }
 
 export function scanLimitsPublic(): {
+  profile: ScanProfile;
   workers: number;
   workersMax: number;
   perHost: number;
@@ -106,8 +135,13 @@ export function scanLimitsPublic(): {
   playwrightMax: number;
   playwrightConcurrent: number;
   scanStaleMs: number;
+  leanSiteCap: number;
+  fastTier: number;
+  memSoftMb: number;
+  memHardMb: number;
 } {
   return {
+    profile: defaultScanProfile(),
     workers: defaultWorkers(),
     workersMax: maxWorkers(),
     perHost: defaultPerHost(),
@@ -117,5 +151,9 @@ export function scanLimitsPublic(): {
     playwrightMax: playwrightRetryMax(),
     playwrightConcurrent: playwrightConcurrent(),
     scanStaleMs: scanStaleMs(),
+    leanSiteCap: leanSiteCap(),
+    fastTier: fastTierSize(),
+    memSoftMb: memorySoftMb(),
+    memHardMb: Math.max(memoryHardMb(), memorySoftMb() + 32),
   };
 }

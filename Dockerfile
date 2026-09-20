@@ -35,7 +35,13 @@ ENV UMBRA_TLS=auto
 # Do not set UMBRA_PLAYWRIGHT=1 unless the service has ≥2 GB RAM.
 ENV UMBRA_PLAYWRIGHT=0
 ENV UMBRA_PLAYWRIGHT_MAX=1
-ENV NODE_OPTIONS=--max-old-space-size=512
+ENV UMBRA_PROFILE=lean
+ENV UMBRA_WORKERS=4
+ENV UMBRA_CURL_MAX=1
+ENV UMBRA_BODY_LIMIT=48000
+ENV UMBRA_MEM_SOFT_MB=450
+ENV UMBRA_MEM_HARD_MB=600
+ENV NODE_OPTIONS=--max-old-space-size=384
 EXPOSE 43180
 
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.

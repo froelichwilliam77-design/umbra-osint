@@ -297,15 +297,19 @@ export interface ScanSummary {
   avatarClusters?: AvatarCluster[];
   includeNsfw: boolean;
   siteCount: number;
+  profile?: "lean" | "full";
+  profileNote?: string;
 }
 
 export type ScanEvent =
   | { type: "hello"; scan: ScanSummary }
   | { type: "row"; row: LedgerRow }
+  | { type: "rows"; rows: LedgerRow[] }
   | { type: "dossier"; dossier: MailDossier | HostDossier | PhoneDossier }
   | { type: "graph"; graph: IdentityGraph }
   | { type: "clusters"; clusters: AvatarCluster[] }
   | { type: "progress"; progress: ScanProgress }
+  | { type: "notice"; message: string }
   | { type: "done"; scan: ScanSummary }
   | { type: "error"; message: string };
 
@@ -320,4 +324,5 @@ export interface SchemaStats {
   wmnSites?: number;
   sherlockSites?: number;
   curatedSites?: number;
+  leanSites?: number;
 }

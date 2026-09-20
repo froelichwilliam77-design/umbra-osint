@@ -54,6 +54,7 @@ app.post("/api/scans", async (req, reply) => {
     workers?: number;
     perHost?: number;
     replace?: boolean;
+    profile?: "lean" | "full";
   };
   const replace = body.replace !== false; // default true — interactive UI replaces wedged scans
   const gate = canStartScan({ replace });
@@ -68,6 +69,7 @@ app.post("/api/scans", async (req, reply) => {
     workers: body.workers,
     perHost: body.perHost,
     replace,
+    profile: body.profile,
   });
   return scan;
 });

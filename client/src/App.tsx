@@ -19,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ComparePanel, GraphPanel } from "@/components/GraphPanel";
+import { VirtualLedger } from "@/components/VirtualLedger";
+import { createBatcher, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
 import type {
   HostDossier,
   IdentityGraph,
@@ -103,6 +105,7 @@ export default function App() {
   const [query, setQuery] = useState("octocat");
   const [mode, setMode] = useState<ScanMode>("auto");
   const [includeNsfw, setIncludeNsfw] = useState(false);
+  const [profile, setProfile] = useState<ScanProfile>("lean");
   const [scan, setScan] = useState<ScanSummary | null>(null);
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [selected, setSelected] = useState<LedgerRow | null>(null);
@@ -112,14 +115,14 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [schema, setSchema] = useState<SchemaStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [graph, setGraph] = useState<IdentityGraph | null>(null);
   const [cases, setCases] = useState<SavedCase[]>(() => loadCases());
   const [compare, setCompare] = useState<ScanCompare | null>(null);
   const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
-  const pendingRef = useRef<LedgerRow[]>([]);
-  const flushTimer = useRef<number | undefined>(undefined);
+  const batcherRef = useRef<ReturnType<typeof createBatcher<LedgerRow>> | null>(null);
 
   useEffect(() => {
     void fetch("/api/schema")
@@ -133,6 +136,12 @@ export default function App() {
       })
       .then(setSchema)
       .catch(() => setSchema(null));
+    void fetch("/api/health")
+      .then(async (r) => (r.ok ? ((await r.json()) as { limits?: { profile?: ScanProfile } }) : null))
+      .then((h) => {
+        if (h?.limits?.profile === "full" || h?.limits?.profile === "lean") setProfile(h.limits.profile);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -147,36 +156,31 @@ export default function App() {
   useEffect(
     () => () => {
       sourceRef.current?.close();
-      if (flushTimer.current) window.clearTimeout(flushTimer.current);
+      batcherRef.current?.flush();
     },
     [],
   );
 
-  const flushRows = () => {
-    const batch = pendingRef.current;
-    pendingRef.current = [];
-    flushTimer.current = undefined;
+  const applyRows = (batch: LedgerRow[]) => {
     if (!batch.length) return;
     setRows((prev) => prev.concat(batch));
     setSelected((cur) => cur ?? batch.find((r) => r.status === "found") ?? batch[0]);
   };
 
-  const queueRow = (row: LedgerRow) => {
-    pendingRef.current.push(row);
-    if (flushTimer.current == null) {
-      flushTimer.current = window.setTimeout(flushRows, 50);
-    }
+  const queueRows = (incoming: LedgerRow | LedgerRow[]) => {
+    if (!batcherRef.current) batcherRef.current = createBatcher(applyRows, SSE_FLUSH_MS);
+    const list = Array.isArray(incoming) ? incoming : [incoming];
+    batcherRef.current.pushMany(list);
   };
 
   const start = async (override?: { query?: string; mode?: ScanMode }) => {
     const q = (override?.query ?? query).trim();
     if (!q) return;
     setError(null);
+    setNotice(null);
     setBusy(true);
-    pendingRef.current = [];
-    if (flushTimer.current) window.clearTimeout(flushTimer.current);
-    flushTimer.current = undefined;
     setRows([]);
+    batcherRef.current = createBatcher(applyRows, SSE_FLUSH_MS);
     setSelected(null);
     setInspectorOpen(false);
     setFilter("found");
@@ -191,6 +195,7 @@ export default function App() {
         mode: override?.mode ?? mode,
         includeNsfw,
         replace: true,
+        profile,
       };
       let res = await fetch("/api/scans", {
         method: "POST",
@@ -208,6 +213,7 @@ export default function App() {
       const data = (await res.json()) as ScanSummary & { error?: string };
       if (!res.ok) throw new Error(data.error || "Scan failed");
       setScan(data);
+      if (data.profileNote) setNotice(data.profileNote);
       if (!data.preflight.ok) {
         setBusy(false);
         setError(data.preflight.errors.join(" "));
@@ -218,9 +224,11 @@ export default function App() {
       es.onmessage = (ev) => {
         const event = JSON.parse(ev.data) as ScanEvent;
         if (event.type === "hello") setScan(event.scan);
-        if (event.type === "row") queueRow(event.row);
+        if (event.type === "row") queueRows(event.row);
+        if (event.type === "rows") queueRows(event.rows);
+        if (event.type === "notice") setNotice(event.message);
         if (event.type === "dossier" || event.type === "done") {
-          if (event.type === "done") flushRows();
+          if (event.type === "done") batcherRef.current?.flush();
           setScan(event.type === "done" ? event.scan : (s) => (s ? { ...s, dossier: event.dossier } : s));
         }
         if (event.type === "progress") {
@@ -237,7 +245,7 @@ export default function App() {
         }
       };
       es.onerror = () => {
-        flushRows();
+        batcherRef.current?.flush();
         setBusy(false);
         es.close();
       };
@@ -249,14 +257,16 @@ export default function App() {
 
 
   const cancel = async () => {
-    if (!scan || scan.status !== "running") return;
+    sourceRef.current?.close();
+    batcherRef.current?.flush();
+    setBusy(false);
+    const id = scan?.id;
+    if (!id) return;
     try {
-      const res = await fetch(`/api/scans/${scan.id}/cancel`, { method: "POST" });
+      const res = await fetch(`/api/scans/${id}/cancel`, { method: "POST" });
       const data = (await res.json()) as { error?: string; scan?: ScanSummary };
       if (!res.ok) throw new Error(data.error || "Cancel failed");
       if (data.scan) setScan(data.scan);
-      setBusy(false);
-      sourceRef.current?.close();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -377,7 +387,7 @@ export default function App() {
             </div>
             <p className="mt-1 max-w-2xl text-xs text-fog-500">
               {schema
-                ? `${schema.handleSites} handle sites · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
+                ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
                 : "Loading schema…"}
             </p>
           </div>
@@ -462,6 +472,32 @@ export default function App() {
             NSFW
           </label>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["lean", "Lean"],
+              ["full", "Full"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setProfile(id)}
+              className={`tap-lg rounded-full border px-4 py-2 font-mono text-xs uppercase tracking-wide ${
+                profile === id
+                  ? "border-accent bg-accent/15 text-fog-100"
+                  : "border-ink-600 text-fog-500 hover:border-fog-500"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="font-mono text-[11px] text-fog-500">
+            {profile === "lean"
+              ? `Lean: ~${schema?.leanSites ?? 200} curated + high-signal handle sites (fits 1 GB Railway).`
+              : "Full: all clearnet sites. Fast tier (~150) runs first, then the rest."}
+          </span>
+        </div>
         <form
           className="mt-3 flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
@@ -480,10 +516,10 @@ export default function App() {
               inputMode={mode === "phone" ? "tel" : "text"}
             />
           </div>
-          <Button type="submit" size="lg" disabled={busy} className="tap-lg w-full sm:w-auto">
-            {busy ? "Recon…" : "Recon"}
+          <Button type="submit" size="lg" className="tap-lg w-full sm:w-auto">
+            {busy ? "Replace…" : "Recon"}
           </Button>
-          {busy && scan?.status === "running" && (
+          {busy && (
             <Button
               type="button"
               size="lg"
@@ -512,6 +548,7 @@ export default function App() {
           </div>
         )}
         {error && <p className="mt-2 text-sm text-signal-error">{error}</p>}
+        {notice && <p className="mt-2 text-sm text-fog-300">{notice}</p>}
       </section>
 
       {scan && (
@@ -607,8 +644,11 @@ export default function App() {
               </Chip>
             ))}
           </div>
-          <div className="max-h-[62vh] overflow-auto">
-            {visible.length === 0 && (
+          <VirtualLedger
+            items={visible}
+            selectedId={selected?.id}
+            onOpen={openRow}
+            empty={
               <p className="px-4 py-10 text-center text-sm text-fog-500">
                 {rows.length === 0
                   ? busy
@@ -618,44 +658,8 @@ export default function App() {
                     ? "Found first — no hits yet. Miss/blocked stay out of this view. Tap All or Hits."
                     : "No rows match this filter."}
               </p>
-            )}
-            {visible.map((row) => (
-              <button
-                key={row.id}
-                onClick={() => openRow(row)}
-                className={`ledger-row flex w-full items-start gap-3 border-b border-ink-700 px-3 py-2 text-left ${
-                  selected?.id === row.id ? "bg-accent/10" : ""
-                }`}
-              >
-                {row.metadata?.avatarUrl ? (
-                  <img
-                    src={row.metadata.avatarUrl}
-                    alt=""
-                    className="mt-0.5 h-8 w-8 shrink-0 rounded-full border border-ink-600 object-cover"
-                  />
-                ) : (
-                  <Badge tone={row.status}>{row.status}</Badge>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm">{row.site}</span>
-                    {row.metadata?.avatarUrl && <Badge tone={row.status}>{row.status}</Badge>}
-                    <span className="font-mono text-[10px] text-fog-500">{row.category}</span>
-                    {row.metadata?.displayName && (
-                      <span className="hidden truncate text-xs text-fog-300 sm:inline">
-                        {row.metadata.displayName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="truncate font-mono text-[11px] text-fog-500">{row.profileUrl || row.url}</div>
-                  <div className="truncate text-[11px] text-fog-500">{row.reason}</div>
-                </div>
-                <span className="hidden shrink-0 font-mono text-[10px] text-fog-500 md:inline">
-                  {row.httpStatus ?? "—"} · {row.latencyMs ?? "—"}ms
-                </span>
-              </button>
-            ))}
-          </div>
+            }
+          />
         </section>
 
         <aside className="hidden rounded-xl border border-ink-600 bg-ink-900/70 p-4 lg:block">

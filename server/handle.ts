@@ -1,3 +1,4 @@
+import type { ScanProfile } from "../shared/scan-limits.ts";
 import type { LedgerRow } from "../shared/types.ts";
 import {
   classifyResponse,
@@ -16,7 +17,7 @@ import {
   playwrightMax,
   shouldEscalateBrowser,
 } from "./playwright-pool.ts";
-import { categoryOf, loadSchema, sitesForScan, type WmnSite } from "./schema.ts";
+import { categoryOf, loadSchema, sitesForScan, splitFastTier, type WmnSite } from "./schema.ts";
 
 const SAFE_HANDLE = /^[A-Za-z0-9._-]+$/;
 
@@ -77,7 +78,8 @@ async function fetchProbe(req: HttpRequest, protection?: string[]): Promise<Http
     (res.status === 401 ||
       res.status === 403 ||
       res.status === 429 ||
-      /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000)))
+      /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000))) &&
+    shouldImpersonate({ protection, url: req.url })
   ) {
     const r = await fetchImpersonate(req);
     if (r.status > 0) return r;
@@ -229,72 +231,85 @@ export async function runHandleScan(
     includeNsfw: boolean;
     workers: number;
     perHost: number;
+    profile?: ScanProfile;
     onRow: (row: LedgerRow) => void;
     pool?: HostPool;
     onPool?: (pool: HostPool) => void;
+    onNotice?: (message: string) => void;
   },
 ): Promise<void> {
-  const sites = sitesForScan(opts.includeNsfw);
+  const profile = opts.profile ?? "full";
+  const sites = sitesForScan(opts.includeNsfw, { profile });
+  const { fast, rest } = profile === "full" ? splitFastTier(sites) : { fast: sites, rest: [] as typeof sites };
   const pool = opts.pool ?? new HostPool({ global: opts.workers, perHost: opts.perHost });
   opts.onPool?.(pool);
   let playwrightLeft = playwrightEnabled() ? playwrightMax() : 0;
-  await Promise.all(
-    sites.map((site) =>
-      pool.schedule(hostFromUrl(site.uri_check), async () => {
-        const protectedHost = Boolean(site.protection?.length);
-        await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
-        if (pool.isAborted) return;
-        let row = await probeSite(scanId, handle, site);
-        if (
-          playwrightLeft > 0 &&
-          !pool.isAborted &&
-          shouldEscalateBrowser(row.status, row.reason, row.method)
-        ) {
-          playwrightLeft -= 1;
-          const { url, pretty, headers } = materialize(site, handle);
-          const pw = await fetchPlaywright({
-            url,
-            method: "GET",
-            headers,
-            timeoutMs: 18_000,
-          });
-          if (pw.status > 0 && !pw.ssrf) {
-            const verdict = classifyResponse(
-              {
-                e_code: site.e_code,
-                e_string: site.e_string,
-                m_code: site.m_code,
-                m_string: site.m_string,
-              },
-              {
-                status: pw.status,
-                body: pw.body,
-                headers: pw.headers,
-                requestedUrl: url,
+
+  const runChunk = async (chunk: typeof sites) => {
+    await Promise.all(
+      chunk.map((site) =>
+        pool.schedule(hostFromUrl(site.uri_check), async () => {
+          const protectedHost = Boolean(site.protection?.length);
+          await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
+          if (pool.isAborted) return;
+          let row = await probeSite(scanId, handle, site);
+          if (
+            playwrightLeft > 0 &&
+            !pool.isAborted &&
+            shouldEscalateBrowser(row.status, row.reason, row.method)
+          ) {
+            playwrightLeft -= 1;
+            const { url, pretty, headers } = materialize(site, handle);
+            const pw = await fetchPlaywright({
+              url,
+              method: "GET",
+              headers,
+              timeoutMs: 18_000,
+            });
+            if (pw.status > 0 && !pw.ssrf) {
+              const verdict = classifyResponse(
+                {
+                  e_code: site.e_code,
+                  e_string: site.e_string,
+                  m_code: site.m_code,
+                  m_string: site.m_string,
+                },
+                {
+                  status: pw.status,
+                  body: pw.body,
+                  headers: pw.headers,
+                  requestedUrl: url,
+                  finalUrl: pw.finalUrl,
+                  account: handle,
+                },
+              );
+              row = {
+                ...row,
+                status: verdict.status,
+                reason: `${verdict.reason} (Playwright GET escalation)`,
+                httpStatus: pw.status,
                 finalUrl: pw.finalUrl,
-                account: handle,
-              },
-            );
-            row = {
-              ...row,
-              status: verdict.status,
-              reason: `${verdict.reason} (Playwright GET escalation)`,
-              httpStatus: pw.status,
-              finalUrl: pw.finalUrl,
-              bodyExcerpt: excerpt(pw.body, verdict.existHit ? site.e_string : site.m_string),
-              latencyMs: (row.latencyMs ?? 0) + pw.latencyMs,
-              via: "playwright",
-              profileUrl: pretty ?? (verdict.status === "found" ? pw.finalUrl : row.profileUrl),
-              metadata:
-                verdict.status === "found"
-                  ? extractMetadata(site.name, pw.body, loadSchema().extractors)
-                  : row.metadata,
-            };
+                bodyExcerpt: excerpt(pw.body, verdict.existHit ? site.e_string : site.m_string),
+                latencyMs: (row.latencyMs ?? 0) + pw.latencyMs,
+                via: "playwright",
+                profileUrl: pretty ?? (verdict.status === "found" ? pw.finalUrl : row.profileUrl),
+                metadata:
+                  verdict.status === "found"
+                    ? extractMetadata(site.name, pw.body, loadSchema().extractors)
+                    : row.metadata,
+              };
+            }
           }
-        }
-        opts.onRow(row);
-      }),
-    ),
-  );
+          if (!pool.isAborted) opts.onRow(row);
+        }),
+      ),
+    );
+  };
+
+  await runChunk(fast);
+  if (rest.length && !pool.isAborted) {
+    opts.onNotice?.(`Fast tier done (${fast.length} high-signal sites). Continuing ${rest.length} more…`);
+    await runChunk(rest);
+  }
   pool.throwIfAborted();
 }
