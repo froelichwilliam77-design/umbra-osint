@@ -4,6 +4,7 @@ import type {
   HostDossier,
   LedgerRow,
   MailDossier,
+  PhoneDossier,
   ScanEvent,
   ScanMode,
   ScanProgress,
@@ -14,11 +15,15 @@ import {
   preflightHandle,
   preflightHost,
   preflightMail,
+  preflightPhone,
   resolveMode,
 } from "./detect.ts";
 import { runHandleScan } from "./handle.ts";
 import { buildMailDossier, hasMailExchanger, runMailScan } from "./mail.ts";
 import { HOST_LEDGER_COUNT, runHostScan } from "./host.ts";
+import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
+import { hashFoundAvatars } from "./phash.ts";
+import { buildIdentityGraph, compareScans } from "./graph.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
 
 interface StoredScan {
@@ -63,6 +68,8 @@ export function subscribe(id: string, fn: (event: ScanEvent) => void): () => voi
   fn({ type: "hello", scan: stored.summary });
   for (const row of stored.rows) fn({ type: "row", row });
   if (stored.summary.dossier) fn({ type: "dossier", dossier: stored.summary.dossier });
+  if (stored.summary.graph) fn({ type: "graph", graph: stored.summary.graph });
+  if (stored.summary.avatarClusters?.length) fn({ type: "clusters", clusters: stored.summary.avatarClusters });
   fn({ type: "progress", progress: stored.summary.progress });
   if (stored.summary.status === "done") fn({ type: "done", scan: stored.summary });
   return () => stored.listeners.delete(fn);
@@ -89,14 +96,18 @@ export async function startScan(input: {
     preflight = preflightMail(normalized, schema.disposable, mxOk);
   } else if (kind === "host") {
     preflight = preflightHost(normalized);
+  } else if (kind === "phone") {
+    preflight = preflightPhone(normalized);
   }
 
   const siteCount =
     kind === "handle"
       ? sitesForScan(includeNsfw).length
       : kind === "mail"
-        ? schema.oracles.length + 8
-        : HOST_LEDGER_COUNT;
+        ? schema.oracles.filter((o) => o.handler !== "hibp" || Boolean(process.env.HIBP_API_KEY?.trim())).length + 8
+        : kind === "phone"
+          ? PHONE_LEDGER_COUNT
+          : HOST_LEDGER_COUNT;
 
   const id = randomUUID();
   const summary: ScanSummary = {
@@ -278,6 +289,14 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
       });
       stored.summary.progress.total = stored.summary.siteCount;
       await runMailScan(stored.summary.id, stored.summary.query, { workers, perHost, onRow });
+    } else if (stored.summary.mode === "phone") {
+      await runPhoneScan(stored.summary.id, stored.summary.query, {
+        onRow,
+        onDossier: (d: PhoneDossier) => {
+          stored.summary.dossier = d;
+          emit(stored, { type: "dossier", dossier: d });
+        },
+      });
     } else {
       await runHostScan(stored.summary.id, stored.summary.query, {
         onRow,
@@ -287,6 +306,17 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
         },
       });
     }
+    if (stored.summary.mode === "handle" || stored.summary.mode === "mail") {
+      const hashed = await hashFoundAvatars(stored.rows);
+      stored.summary.avatarClusters = hashed.clusters;
+      if (hashed.clusters.length) emit(stored, { type: "clusters", clusters: hashed.clusters });
+    }
+    stored.summary.graph = buildIdentityGraph({
+      summary: stored.summary,
+      rows: stored.rows,
+      clusters: stored.summary.avatarClusters,
+    });
+    emit(stored, { type: "graph", graph: stored.summary.graph });
   } catch (err) {
     emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
@@ -295,6 +325,13 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
     stored.summary.finishedAt = new Date().toISOString();
     emit(stored, { type: "done", scan: stored.summary });
   }
+}
+
+export function compareStored(aId: string, bId: string) {
+  const a = scans.get(aId);
+  const b = scans.get(bId);
+  if (!a || !b) return null;
+  return compareScans(a, b);
 }
 
 export type { MailDossier };

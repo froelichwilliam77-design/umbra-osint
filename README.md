@@ -1,14 +1,16 @@
 # Umbra
 
-Public-OSINT workstation for **handle**, **mail**, and **host** reconnaissance. One search bar, auto-detected input, a live classified ledger, and exports.
+Public-OSINT workstation for **handle**, **mail**, **host**, and **phone** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
-Umbra is not a mock. Handle mode walks the WhatsMyName-scale site registry (700+ platforms, plus a curated overlay: Wikipedia, Stack Overflow, Hugging Face, LinkedIn, Mastodon, Bluesky, Codeberg, Docker Hub, RubyGems, Lichess, Launchpad, and more). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason; per-site username regex skips invalid handles.
+Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1003** unique platforms; 963 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
 
-Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, handle pivots) and runs silent registration oracles — never SMTP or password-reset mail.
+Mail mode builds an identity dossier (MX provider, disposable/role, Gravatar, M365 tenant, SPF/DMARC/DKIM/BIMI, handle + host pivots) and runs silent registration oracles — never SMTP or password-reset mail. Have I Been Pwned is skipped entirely unless `HIBP_API_KEY` is set.
 
-Host mode pulls RDAP (registrar, dates, DNSSEC, abuse contact, nameservers), DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS title/headers/HSTS/CSP, and the TLS certificate subject + SAN + days remaining.
+Host mode pulls RDAP, DNS, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS headers/title, and the TLS certificate.
 
-**Authorized use only.** Run it against identifiers you are allowed to investigate. Umbra never sends SMTP or password-reset mail to a subject. Server-side fetches refuse private, loopback, link-local, and metadata addresses (SSRF).
+Phone mode (new) E.164-normalizes with libphonenumber, adds country/region/type hints (NANP NPA labels where known), and optional Twilio/Numverify carrier lookups behind env keys. It never sends SMS.
+
+**Authorized use only.** Run it against identifiers you are allowed to investigate. Server-side fetches refuse private, loopback, link-local, and metadata addresses (SSRF).
 
 ## Run locally
 
@@ -34,34 +36,45 @@ Then open http://127.0.0.1:43180.
 npm test
 ```
 
-Live console screenshots from a local run:
+Live console screenshots:
 
 - Handle `octocat` — [docs/screenshots/handle_octocat_ledger.png](docs/screenshots/handle_octocat_ledger.png)
 - Mail `press@github.com` — [docs/screenshots/mail_press_github_dossier.png](docs/screenshots/mail_press_github_dossier.png)
 - Host `github.com` — [docs/screenshots/host_github_rdap_dns.png](docs/screenshots/host_github_rdap_dns.png)
+- Phone `+14155552671` — [docs/screenshots/phone_e164_dossier.png](docs/screenshots/phone_e164_dossier.png)
+- PWA / mobile — [docs/screenshots/pwa_mobile_install.png](docs/screenshots/pwa_mobile_install.png)
 
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). This upgrade: **738** handle sites (699 clearnet). Local run: **157 found** / 326 miss / 140 blocked / 62 escalate on 699 clearnet (main README cited 163 found on 686, with fewer 404s classified as miss). GitHub is found with matcher recovery + metadata.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **53** silent oracles + **Pivot local-part as handle**. Local run: MX + SPF/DMARC + DKIM (`google, selector1, k1, s1, s2`) + M365 Managed + GitHub taken; 403/429 oracles stay **blocked**.
-4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA/TXT, SPF/DMARC/DKIM, parsed security.txt (HackerOne), HTTPS title/headers, TLS cert SAN + days remaining. Local run: **13 found** / 2 miss (AAAA, BIMI) on 15 ledger rows.
-5. Export the ledger as Markdown / JSON / JSONL / CSV / HTML.
+2. `octocat` in Auto/Handle — classified hits across **1003** sites (963 clearnet). GitHub should be **found** with avatar/bio/followers; matching avatars get a pHash cluster on the identity graph.
+3. `press@github.com` in Mail — dossier + silent oracles + **1-click pivots** to handle `press` and host `github.com`. HIBP stays off unless `HIBP_API_KEY` is set.
+4. `github.com` in Host — RDAP / DNS / cert SAN.
+5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type, optional carrier.
+6. **Save case**, run a second query, **Compare with** the saved run. Export Markdown / JSON / JSONL / CSV / HTML.
 
 ## Railway (public HTTPS)
 
-Same pattern as STRAND: one Docker process, built UI + `/api`, bind `0.0.0.0`, listen on `$PORT`.
+Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, listen on `$PORT`.
 
 1. New project on [Railway](https://railway.app) → **Deploy from GitHub** → `froelichwilliam77-design/umbra-osint`.
 2. `railway.toml` already selects the Dockerfile and health-checks `/api/health`.
-3. Generate a domain. Open the HTTPS URL on phone or desktop.
+3. Generate a domain. Open the HTTPS URL on phone or desktop. Add to Home Screen (PWA).
 
-No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`.
+No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`, `UMBRA_PLAYWRIGHT`, Twilio/Numverify keys.
 
 ```bash
-# local production bind (Railway sets PORT for you)
 PORT=43180 HOST=0.0.0.0 npm start
 ```
+
+The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process for protected/WAF hosts. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service.
+
+## PWA install (phone)
+
+1. Open the Railway HTTPS URL in Safari (iOS) or Chrome (Android).
+2. iOS Safari: Share → **Add to Home Screen**. The manifest + `apple-touch-icon` + `apple-mobile-web-app-capable` meta are present.
+3. Android Chrome: menu → **Install app**, or the in-app **Add to Home Screen** button when the browser fires `beforeinstallprompt`.
+4. The service worker caches the app shell only. `/api/*` is always network (live scans). Production still serves UI + API from one Node process.
 
 ## Docker (optional Tor sidecar)
 
@@ -76,40 +89,40 @@ docker compose up --build
 UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 ```
 
-Or point a local process at any HTTP/SOCKS proxy:
-
-```bash
-UMBRA_PROXY=socks5://127.0.0.1:9050 npm start
-```
-
 ## What each mode does
 
 | Mode | Pre-flight | Work |
 | --- | --- | --- |
-| **Handle** | length/charset regex | WhatsMyName + curated YAML. Dual-condition match (`e_code`+`e_string` / `m_code`+`m_string`), JSON account recovery, 404/410 miss-with-reason. |
-| **Mail** | format, disposable list, MX | Identity dossier (provider, plus-address, role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, handle pivots) + silent oracles. |
-| **Host** | hostname sanity | RDAP, DNS A/AAAA/MX/NS/TXT/CNAME/SOA/CAA, SPF/DMARC/DKIM/BIMI, parsed security.txt, HTTPS headers + `<title>`, TLS cert SAN. |
-| **Auto** | — | `@` → mail; dotted hostname with a TLD → host; otherwise handle. |
+| **Handle** | length/charset regex | WhatsMyName + Sherlock overlay + curated YAML. Dual-condition match. TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters. |
+| **Mail** | format, disposable list, MX | Identity dossier + silent oracles. 1-click pivots to local-part handle and mail domain host. HIBP skipped unless keyed. |
+| **Host** | hostname sanity | RDAP, DNS, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN. |
+| **Phone** | E.164 / libphonenumber | Country, NANP region, line type, optional Twilio/Numverify carrier. Public search links only — no SMS. |
+| **Auto** | — | `@` → mail; phone-shaped → phone; dotted hostname with a TLD → host; otherwise handle. |
 
 ### Classification
 
 Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 
 - 403, 429, 451, CAPTCHA, and WAF signatures are **blocked**, never a miss.
-- HTTP 404/410 without an exist match is **miss** with a reason, even if `m_string` drifted.
+- HTTP 404/410 without an exist match is **miss** with a reason.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
-- JSON bodies that name the account recover stale WhatsMyName `e_string`s as **found**.
 - Both exist and missing conditions matching — or neither — is **escalate**.
 
 ### Anti-bot (what actually ships)
 
-Browser-matched headers, UA rotation, HTTP/2 via undici, redirect policy (manual for handle probes so 302-as-miss still works), global workers + per-host limit + jitter.
+- Chrome-matched headers, UA rotation, HTTP/2 via undici, per-host workers, jitter, `Retry-After` on 429/503.
+- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it.
+- **Playwright** is optional and off by default. `UMBRA_PLAYWRIGHT=1` plus `npx playwright install chromium` retries blocked/escalate Cloudflare/CAPTCHA rows with an authorized public **GET** only (no logins, no credential stuffing, SSRF still applies). Cap with `UMBRA_PLAYWRIGHT_MAX` (default 20).
 
-**Limitation:** Umbra does not bundle `curl-impersonate` / `rquest` / Playwright. Sites that fingerprint TLS (JA3/JA4) may **block** or **escalate**. Prefer the optional SOCKS/Tor path or a residential proxy (`UMBRA_PROXY`) when that happens. A Playwright fallback is intentionally not the default — it would slow first usable delivery.
+Local without Docker: TLS impersonation is **partial** until `curl-impersonate` is on `PATH` or `UMBRA_CURL_IMPERSONATE` points at `curl_chrome146`. Check `GET /api/health` (`tlsImpersonation`, `tlsBinary`, `tlsNote`).
 
 ### Mail safety
 
-Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is skipped unless `HIBP_API_KEY` is set.
+Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is skipped unless `HIBP_API_KEY` is set (the oracle row is not emitted).
+
+### Phone safety
+
+Public numbering-plan metadata only. Optional live carrier APIs require your own keys. Umbra never sends SMS or places calls.
 
 ## Schema
 
@@ -117,7 +130,8 @@ See [`schema/README.md`](schema/README.md).
 
 | File | Role |
 | --- | --- |
-| `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot |
+| `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot (717) |
+| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (265), dual-condition |
 | `schema/sites.curated.yaml` | Extra handle targets + JSON extractors |
 | `schema/oracles.yaml` | Silent mail oracles |
 | `schema/disposable-domains.txt` | Burn-mail flags |
@@ -126,22 +140,25 @@ See [`schema/README.md`](schema/README.md).
 npm run sync:wmn
 ```
 
-Runtime import: `POST /api/schema/import` with a WhatsMyName JSON document.
+That refreshes both WhatsMyName and the Sherlock overlay. Runtime import: `POST /api/schema/import` with a WhatsMyName JSON document.
 
-NSFW WhatsMyName category (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
+NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 
 ## API
 
 - `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost? }`
-- `GET /api/scans/:id` snapshot
-- `GET /api/scans/:id/events` SSE ledger
+- `GET /api/scans` in-memory summaries (for compare)
+- `GET /api/scans/:id` snapshot + graph
+- `GET /api/scans/:id/events` SSE ledger (includes `graph` / `clusters`)
+- `GET /api/scans/:id/graph`
+- `GET /api/scans/compare?a=&b=` found-site diff of two in-memory scans
 - `GET /api/scans/:id/export?format=md|json|jsonl|csv|html`
 - `GET /api/schema` registry stats
-- `GET /api/health`
+- `GET /api/health` TLS / Playwright / HIBP flags
 
 ## Tests
 
-Vitest covers dual-condition matching (including case-insensitive / whitespace-tolerant body strings), 403/429/451/CAPTCHA classification, redirect-as-miss, redirect-as-evidence, soft-404, HTTP 404 fallback, JSON account recovery, empty JSON collections, per-site username regex skips, handle preflight, email dossier basics (disposable, role, plus-address, name patterns, pivots, SHA-256), SPF/DMARC/security.txt parse, metadata/JSON-LD extractors, schema/oracle integrity, and SSRF blocks (loopback, RFC1918, IPv6 ULA, `file:`, credentials).
+Vitest covers dual-condition matching, 403/429/451/CAPTCHA classification, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, extractors, schema/oracle integrity, and SSRF blocks.
 
 ## Environment
 
@@ -150,5 +167,25 @@ Vitest covers dual-condition matching (including case-insensitive / whitespace-t
 | `PORT` / `UMBRA_PORT` | `43180` | Engine bind |
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
-| `HIBP_API_KEY` | unset | Optional breach oracle |
-| `WMN_URL` | WhatsMyName main | Override for `npm run sync:wmn` |
+| `HIBP_API_KEY` | unset | Optional breach oracle (skipped silently if unset) |
+| `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate |
+| `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
+| `UMBRA_PLAYWRIGHT` | unset | `1` to escalate blocked/CAPTCHA GETs with Chromium |
+| `UMBRA_PLAYWRIGHT_MAX` | `20` | Max Playwright retries per handle scan |
+| `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
+| `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
+| `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
+| `WMN_URL` / `SHERLOCK_URL` | upstream main | Overrides for `npm run sync:wmn` |
+
+## Optional Playwright / TLS (local)
+
+```bash
+# TLS: binary on PATH (Docker already installs this)
+# https://github.com/lexiforest/curl-impersonate/releases
+export UMBRA_CURL_IMPERSONATE=/path/to/curl_chrome146
+
+# Playwright (optional, large). GET-only escalation for CF/CAPTCHA rows.
+npm install -D playwright
+npx playwright install chromium
+UMBRA_PLAYWRIGHT=1 npm start
+```
