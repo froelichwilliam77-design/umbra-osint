@@ -229,6 +229,13 @@ describe("oracle registry expansion", () => {
   it("ships well over the v1.2.0 baseline of 53 silent oracles", () => {
     expect(loadSchema().oracles.length).toBeGreaterThan(140);
     expect(Object.keys(handlers).length).toBeGreaterThan(140);
+    expect(loadSchema().oracles.filter((o) => o.quarantine).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("mail scan module imports the handler registry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../server/mail.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/import \{ handlers \} from "\.\/mail-oracles\.ts"/);
   });
 
   it("does not include password-reset handlers", () => {

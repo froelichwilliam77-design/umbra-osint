@@ -6,6 +6,7 @@ import type { OracleVerdict } from "./oracles.ts";
 import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { parseDmarc, parseSpf, lookupBimi, lookupDkim, lookupRdap } from "./host.ts";
 import { fetchPublic, jitter } from "./http.ts";
+import { finalizeOracleVerdict } from "./mail-oracle-recover.ts";
 import { handlers } from "./mail-oracles.ts";
 import { gravatarProfile, mailOpenLinks, mailPivots } from "./mail-util.ts";
 import { loadSchema, type OracleSpec } from "./schema.ts";
@@ -202,22 +203,50 @@ export async function runMailScan(
     oracles.map((spec) =>
       pool.schedule(spec.id, async () => {
         await jitter(60, 240);
-        const fn = handlers[spec.handler];
-        if (!fn) {
+        if (spec.quarantine) {
+          const reason =
+            typeof spec.quarantine === "string"
+              ? spec.quarantine.startsWith("Quarantined")
+                ? spec.quarantine
+                : `Quarantined: ${spec.quarantine}`
+              : "Quarantined: chronically CSRF/dead endpoint — not probed (would not yield found/miss).";
           opts.onRow(
-            rowFromVerdict(
-              scanId,
-              email,
-              spec,
-              { status: "error", reason: `No handler implemented for ${spec.handler}.` },
-              { url: "", method: "GET" },
-            ),
+            rowFromVerdict(scanId, email, spec, { status: "blocked", reason }, {
+              url: "",
+              method: "SKIP",
+            }),
           );
           return;
         }
         try {
+          const fn = handlers[spec.handler];
+          if (!fn) {
+            opts.onRow(
+              rowFromVerdict(
+                scanId,
+                email,
+                spec,
+                { status: "error", reason: `No handler implemented for ${spec.handler}.` },
+                { url: "", method: "GET" },
+              ),
+            );
+            return;
+          }
           const { verdict, extras } = await fn(email);
-          opts.onRow(rowFromVerdict(scanId, email, spec, verdict, extras));
+          const recovered = finalizeOracleVerdict(
+            {
+              ok: Boolean(extras.httpStatus && extras.httpStatus >= 200 && extras.httpStatus < 300),
+              status: extras.httpStatus ?? 0,
+              url: extras.url ?? "",
+              finalUrl: extras.finalUrl ?? extras.url ?? "",
+              headers: {},
+              body: extras.bodyExcerpt ?? "",
+              latencyMs: extras.latencyMs ?? 0,
+              via: extras.via,
+            },
+            verdict,
+          );
+          opts.onRow(rowFromVerdict(scanId, email, spec, recovered, extras));
         } catch (err) {
           opts.onRow(
             rowFromVerdict(

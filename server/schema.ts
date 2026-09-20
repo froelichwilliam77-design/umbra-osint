@@ -44,6 +44,8 @@ export interface OracleSpec {
   category: string;
   handler: string;
   optional?: boolean;
+  /** When set, the oracle is not probed — emitted as blocked with this reason. */
+  quarantine?: string | boolean;
 }
 
 export interface SchemaBundle {
@@ -166,6 +168,7 @@ export function schemaStats(): SchemaStats {
     handleSites: s.sites.length,
     categories,
     oracles: s.oracles.length,
+    oraclesQuarantined: s.oracles.filter((o) => Boolean(o.quarantine)).length,
     disposableDomains: s.disposable.size,
     wmnImportedAt: s.wmnImportedAt,
     wmnSource: s.wmnSource,

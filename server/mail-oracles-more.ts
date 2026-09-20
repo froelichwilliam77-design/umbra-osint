@@ -1,10 +1,10 @@
 import type { LedgerRow } from "../shared/types.ts";
-import { fetchFollow } from "./http.ts";
 import { type OracleVerdict } from "./oracles.ts";
 import {
   cookieHeader,
   csrfToken,
   fetchOracle,
+  fetchOracleFollow,
   jsonStatus,
   pack,
   takenOrAvailable,
@@ -646,7 +646,7 @@ const handlers: Record<string, OracleFn> = {
   },
   caringbridge: async (email) => {
     const url = "https://www.caringbridge.org/signin";
-    const res = await fetchFollow({
+    const res = await fetchOracleFollow({
       url,
       method: "POST",
       headers: {

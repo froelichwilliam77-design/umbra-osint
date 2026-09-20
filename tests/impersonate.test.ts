@@ -17,10 +17,16 @@ describe("TLS impersonation + Playwright flags", () => {
     else expect(want).toBe(false);
   });
 
-  it("keeps Playwright off by default and only escalates GET challenge rows", () => {
+  it("keeps Playwright off outside production and only escalates GET challenge rows", () => {
     expect(playwrightEnabled()).toBe(false);
     expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "GET")).toBe(true);
     expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "POST")).toBe(false);
     expect(shouldEscalateBrowser("miss", "Missing match", "GET")).toBe(false);
+  });
+
+  it("auto-impersonates mail oracles when a binary exists", () => {
+    const want = shouldImpersonate({ oracle: true, url: "https://github.com/signup_check/email" });
+    if (impersonateAvailable()) expect(want).toBe(true);
+    else expect(want).toBe(false);
   });
 });

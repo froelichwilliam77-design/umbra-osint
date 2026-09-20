@@ -65,10 +65,12 @@ oracles:
     name: X / Twitter
     category: social
     handler: twitter
+    quarantine: "Unauthenticated X/Twitter email_available is CSRF/401-gated — not probed."
   - id: instagram
     name: Instagram
     category: social
     handler: instagram
+    quarantine: "Instagram check_email is CSRF-gated — not probed."
   - id: lastfm
     name: Last.fm
     category: music
@@ -314,6 +316,7 @@ oracles:
     name: Facebook
     category: social
     handler: facebook
+    quarantine: "Facebook web_create_ajax is CSRF-gated — not probed."
   - id: fanpop
     name: Fanpop
     category: social
@@ -366,6 +369,7 @@ oracles:
     name: Myspace
     category: social
     handler: myspace
+    quarantine: "Myspace signup is defunct / chronically inconclusive — not probed."
   - id: crevado
     name: Crevado
     category: art
@@ -426,6 +430,7 @@ oracles:
     name: TikTok
     category: social
     handler: tiktok
+    quarantine: "TikTok email check is WAF/CAPTCHA-gated — not probed."
   - id: twitch
     name: Twitch
     category: video

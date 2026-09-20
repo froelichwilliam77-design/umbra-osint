@@ -67,6 +67,14 @@ const SOFT_404 = [
   "no users found",
   "item not available",
   "no longer available",
+  "this account doesn't exist",
+  "this account does not exist",
+  "sorry, nobody",
+  "user has been suspended",
+  "account suspended",
+  "profile unavailable",
+  "that user does not exist",
+  "no profile found",
 ];
 
 function headerMap(headers: Record<string, string>): Record<string, string> {
@@ -107,6 +115,9 @@ export function detectWaf(input: Pick<ClassifyInput, "status" | "body" | "header
     if (body.includes(hint)) {
       if (hint === "forbidden" && input.status !== 403 && input.status !== 401) continue;
       if (hint === "cloudflare" && !body.includes("challenge") && !body.includes("cf-ray") && !body.includes("attention required") && !body.includes("just a moment")) {
+        continue;
+      }
+      if (hint === "ray id" && !body.includes("challenge") && !body.includes("attention required") && !body.includes("just a moment") && !body.includes("blocked")) {
         continue;
       }
       return `Anti-bot / WAF signature in body (${hint}).`;
@@ -201,6 +212,10 @@ const USERNAME_KEYS = [
   "nick",
   "uid",
   "slug",
+  "display_name",
+  "displayName",
+  "uniqueName",
+  "canonicalName",
 ];
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -265,6 +280,74 @@ export function htmlAccountEvidence(body: string, account?: string): boolean {
   if (lower.includes(`href="/~${acc}"`) || lower.includes(`href='/~${acc}'`)) return true;
   if (new RegExp(`['"]username['"]\\s*=>\\s*['"]${acc}['"]`, "i").test(slice)) return true;
   return false;
+}
+
+export function jsonErrorMissing(body: string): boolean {
+  const trimmed = body.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const rec = asRecord(parsed);
+    if (!rec) return false;
+    const msg = String(rec.message ?? rec.error ?? rec.detail ?? rec.reason ?? "").toLowerCase();
+    if (/not found|does not exist|doesn't exist|no such user|unknown user|user not found/.test(msg)) return true;
+    if (rec.error === 404 || rec.status === 404 || rec.code === 404) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function preferSpecificMatcher(spec: MatchSpec, existHit: boolean, missHit: boolean, status: number): ClassifyResult | null {
+  if (!(existHit && missHit)) return null;
+  const e = spec.e_string.toLowerCase();
+  const m = spec.m_string.toLowerCase();
+  if (m && e && m.includes(e) && m.length > e.length) {
+    return {
+      status: "miss",
+      reason: "Missing-string is more specific than exist-string (substring collision) — miss.",
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (e && m && e.includes(m) && e.length > m.length) {
+    return {
+      status: "found",
+      reason: "Exist-string is more specific than missing-string (substring collision) — found.",
+      existHit: true,
+      missHit: false,
+      waf: false,
+    };
+  }
+  if (status === 404 || status === 410) {
+    return {
+      status: "miss",
+      reason: `HTTP ${status} wins the exist+missing collision — profile absent.`,
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (spec.m_code != null && status === spec.m_code && status !== spec.e_code) {
+    return {
+      status: "miss",
+      reason: `HTTP ${status} matches the missing status in an exist+missing collision.`,
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (spec.e_code != null && status === spec.e_code && status !== spec.m_code) {
+    return {
+      status: "found",
+      reason: `HTTP ${status} matches the exist status in an exist+missing collision.`,
+      existHit: true,
+      missHit: false,
+      waf: false,
+    };
+  }
+  return null;
 }
 
 export function jsonEmptyCollection(body: string): boolean {
@@ -349,6 +432,17 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
 
   const { existHit, missHit } = dualCondition(spec, input.status, input.body);
   if (existHit && missHit) {
+    const resolved = preferSpecificMatcher(spec, existHit, missHit, input.status);
+    if (resolved) return resolved;
+    if (isSoft404(input.body) || jsonErrorMissing(input.body) || jsonEmptyCollection(input.body)) {
+      return {
+        status: "miss",
+        reason: "Exist+missing collision resolved as miss (soft-404 / empty / not-found JSON).",
+        existHit: false,
+        missHit: true,
+        waf: false,
+      };
+    }
     return {
       status: "escalate",
       reason: "Both exist and missing conditions matched — ambiguous.",
@@ -418,6 +512,86 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
     return {
       status: "miss",
       reason: "HTTP 204 No Content — no profile payload.",
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (input.status === 401) {
+    return {
+      status: "blocked",
+      reason: "HTTP 401 auth wall — treated as blocked, not a miss.",
+      existHit: false,
+      missHit: false,
+      waf: true,
+    };
+  }
+  if (input.status === 400 && !existHit) {
+    return {
+      status: "miss",
+      reason: "HTTP 400 — no profile payload (missing-condition body did not need to match).",
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (jsonErrorMissing(input.body) && input.status >= 200 && input.status < 500 && !existHit) {
+    return {
+      status: "miss",
+      reason: "JSON error payload reports the profile was not found.",
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  // Stale e_code: exist-string still present on a 2xx that is not the recorded exist status.
+  if (
+    spec.e_string &&
+    includesLoose(input.body, spec.e_string) &&
+    input.status >= 200 &&
+    input.status < 300 &&
+    !isSoft404(input.body)
+  ) {
+    return {
+      status: "found",
+      reason: `Exist body matched on HTTP ${input.status} (status code drifted from e_code ${spec.e_code}).`,
+      existHit: true,
+      missHit: false,
+      waf: false,
+    };
+  }
+  // Stale m_code: missing-string still present.
+  if (spec.m_string && includesLoose(input.body, spec.m_string) && !existHit) {
+    return {
+      status: "miss",
+      reason: `Missing body matched on HTTP ${input.status} (status code drifted from m_code ${spec.m_code}).`,
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
+  if (input.status >= 500) {
+    return {
+      status: "error",
+      reason: `Upstream HTTP ${input.status}.`,
+      existHit,
+      missHit,
+      waf: false,
+    };
+  }
+  if (input.status === 406 || input.status === 999) {
+    return {
+      status: "blocked",
+      reason: `HTTP ${input.status} — treated as blocked, not a miss.`,
+      existHit: false,
+      missHit: false,
+      waf: true,
+    };
+  }
+  if (input.status >= 300 && input.status < 400) {
+    return {
+      status: "miss",
+      reason: `HTTP ${input.status} redirect is not a /${input.account ?? "account"} profile.`,
       existHit: false,
       missHit: true,
       waf: false,
