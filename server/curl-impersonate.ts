@@ -1,9 +1,12 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, rm, writeFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import pLimit from "p-limit";
 import type { HttpRequest, HttpResponse } from "./http.ts";
+import { bodyLimit, impersonateMax } from "./limits.ts";
+import { isSoftMemoryPressure } from "./memory.ts";
 
 const CANDIDATES = [
   process.env.UMBRA_CURL_IMPERSONATE,
@@ -22,6 +25,18 @@ const CANDIDATES = [
 ].filter((x): x is string => Boolean(x));
 
 let cachedBin: string | null | undefined;
+const liveChildren = new Set<ChildProcess>();
+let curlGate: ReturnType<typeof pLimit> | null = null;
+let curlGateN = 0;
+
+function getCurlGate() {
+  const n = impersonateMax();
+  if (!curlGate || curlGateN !== n) {
+    curlGate = pLimit(n);
+    curlGateN = n;
+  }
+  return curlGate;
+}
 
 function which(bin: string): string | null {
   if (bin.includes("/") && existsSync(bin)) return bin;
@@ -50,6 +65,8 @@ export function impersonateAvailable(): boolean {
   return impersonateBinary() !== null;
 }
 
+export { impersonateMax };
+
 export function tlsMode(): "off" | "auto" | "always" {
   const raw = (process.env.UMBRA_TLS ?? "auto").trim().toLowerCase();
   if (raw === "off" || raw === "0" || raw === "false") return "off";
@@ -64,6 +81,7 @@ export function shouldImpersonate(opts: {
   oracle?: boolean;
 }): boolean {
   if (!impersonateAvailable()) return false;
+  if (isSoftMemoryPressure()) return false;
   const mode = tlsMode();
   if (mode === "off") return false;
   if (mode === "always" || opts.force) return true;
@@ -100,48 +118,89 @@ function parseHeaderBlob(raw: string): { status: number; headers: Record<string,
   return { status, headers, location: headers.location };
 }
 
+export function killImpersonateChildren(): void {
+  for (const child of liveChildren) {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* ignore */
+    }
+  }
+  liveChildren.clear();
+}
+
 function spawnCurl(args: string[], timeoutMs: number): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(args[0], args.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(args[0], args.slice(1), { stdio: ["ignore", "ignore", "pipe"] });
+    liveChildren.add(child);
     let stderr = "";
     child.stderr?.on("data", (d) => {
-      stderr += String(d);
+      if (stderr.length >= 8_192) return;
+      stderr += String(d).slice(0, 8_192 - stderr.length);
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
     }, timeoutMs + 500);
-    child.on("close", (code) => {
+    const done = (code: number, err = stderr) => {
       clearTimeout(timer);
-      resolve({ code: code ?? 1, stderr });
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ code: 1, stderr: err.message });
-    });
+      liveChildren.delete(child);
+      resolve({ code, stderr: err });
+    };
+    child.on("close", (code) => done(code ?? 1));
+    child.on("error", (err) => done(1, err.message));
   });
 }
 
+async function readCappedFile(path: string, max: number): Promise<string> {
+  let fh: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    fh = await open(path, "r");
+    const buf = Buffer.alloc(Math.max(1, max));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    return buf.subarray(0, bytesRead).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    await fh?.close().catch(() => undefined);
+  }
+}
+
+function skipped(req: HttpRequest, started: number, error: string): HttpResponse {
+  return {
+    ok: false,
+    status: 0,
+    url: req.url,
+    finalUrl: req.url,
+    headers: {},
+    body: "",
+    latencyMs: Date.now() - started,
+    error,
+    via: "curl-impersonate",
+  };
+}
+
 export async function fetchImpersonate(req: HttpRequest): Promise<HttpResponse> {
-  const bin = impersonateBinary();
   const started = Date.now();
+  if (isSoftMemoryPressure()) {
+    return skipped(req, started, "curl-impersonate skipped: memory pressure");
+  }
+  return getCurlGate()(() => fetchImpersonateInner(req, started));
+}
+
+async function fetchImpersonateInner(req: HttpRequest, started: number): Promise<HttpResponse> {
+  if (isSoftMemoryPressure()) {
+    return skipped(req, started, "curl-impersonate skipped: memory pressure");
+  }
+  const bin = impersonateBinary();
   if (!bin) {
-    return {
-      ok: false,
-      status: 0,
-      url: req.url,
-      finalUrl: req.url,
-      headers: {},
-      body: "",
-      latencyMs: 0,
-      error: "curl-impersonate not installed",
-      via: "curl-impersonate",
-    };
+    return skipped(req, started, "curl-impersonate not installed");
   }
   const dir = await mkdtemp(join(tmpdir(), "umbra-curl-"));
   const headerFile = join(dir, "h");
   const bodyFile = join(dir, "b");
   const method = (req.method ?? "GET").toUpperCase();
   const timeoutMs = req.timeoutMs ?? 12_000;
+  const limit = bodyLimit();
   const args = [
     bin,
     "-sS",
@@ -153,6 +212,8 @@ export async function fetchImpersonate(req: HttpRequest): Promise<HttpResponse> 
     "8",
     "--max-time",
     String(Math.ceil(timeoutMs / 1000)),
+    "--max-filesize",
+    String(limit),
     "-D",
     headerFile,
     "-o",
@@ -174,19 +235,8 @@ export async function fetchImpersonate(req: HttpRequest): Promise<HttpResponse> 
   args.push(req.url);
   try {
     const { code, stderr } = await spawnCurl(args, timeoutMs);
-    let headerRaw = "";
-    let body = "";
-    try {
-      headerRaw = await readFile(headerFile, "utf8");
-    } catch {
-      headerRaw = "";
-    }
-    try {
-      body = await readFile(bodyFile, "utf8");
-    } catch {
-      body = "";
-    }
-    if (body.length > 512_000) body = body.slice(0, 512_000);
+    const headerRaw = await readCappedFile(headerFile, 32_000);
+    const body = await readCappedFile(bodyFile, limit);
     const parsed = parseHeaderBlob(headerRaw);
     let finalUrl = req.url;
     if (parsed.location) {
@@ -237,7 +287,7 @@ export function impersonateHealth(): {
     tlsBinary: bin,
     tlsMode: tlsMode(),
     tlsNote: bin
-      ? `curl-impersonate via ${bin} (Chrome TLS + HTTP/2). Mode=${tlsMode()}. Protected/WAF hosts and silent mail oracles use it automatically; set UMBRA_TLS=always to force. Playwright GET escalation is on in production Docker/Railway (UMBRA_PLAYWRIGHT=1); locally set UMBRA_PLAYWRIGHT=1 after \`npx playwright install chromium\`.`
-      : "curl-impersonate not on PATH. Node/undici HTTP/2 + Chrome headers still run. Install curl-impersonate or rebuild the Docker image (bundles curl_chrome*). Playwright GET escalation: UMBRA_PLAYWRIGHT=1 after `npx playwright install chromium` (default-on in Docker/Railway).",
+      ? `curl-impersonate via ${bin} (Chrome TLS + HTTP/2). Mode=${tlsMode()}. Max ${impersonateMax()} concurrent children. Protected/WAF hosts use it automatically; set UMBRA_TLS=always to force.`
+      : "curl-impersonate not on PATH. Node/undici HTTP/2 + Chrome headers still run. Install curl-impersonate or rebuild the Docker image (bundles curl_chrome*). Playwright stays off unless UMBRA_PLAYWRIGHT=1 (not for 1 GB Railway).",
   };
 }

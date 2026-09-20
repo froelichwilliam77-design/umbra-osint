@@ -31,7 +31,11 @@ RUN npx playwright install chromium || true
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV UMBRA_TLS=auto
-ENV UMBRA_PLAYWRIGHT=1
+# Playwright stays OFF. Chromium OOMs a 1 GB Railway hobby/free service (~1.34 GB RSS).
+# Do not set UMBRA_PLAYWRIGHT=1 unless the service has ≥2 GB RAM.
+ENV UMBRA_PLAYWRIGHT=0
+ENV UMBRA_PLAYWRIGHT_MAX=1
+ENV NODE_OPTIONS=--max-old-space-size=512
 EXPOSE 43180
 
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.

@@ -289,6 +289,7 @@ export interface ScanSummary {
   createdAt: string;
   finishedAt?: string;
   status: "running" | "done" | "cancelled";
+  abortReason?: string;
   preflight: PreflightResult;
   progress: ScanProgress;
   dossier?: MailDossier | HostDossier | PhoneDossier;

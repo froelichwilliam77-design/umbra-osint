@@ -58,17 +58,20 @@ Live console screenshots:
 
 Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, listen on `$PORT`.
 
+**1 GB hobby / free plan:** keep Playwright **off**. A handle scan with `UMBRA_PLAYWRIGHT=1` (max 20) plus curl-impersonate peaked at **~1.34 GB RSS** and was OOM-killed mid-scan. The image now defaults to `UMBRA_PLAYWRIGHT=0`, `UMBRA_PLAYWRIGHT_MAX=1`, `NODE_OPTIONS=--max-old-space-size=512`, 8 global workers / 1 per host, and at most 3 curl-impersonate children. Target: a full mail + handle scan stays under **~700 MB RSS** without restarting.
+
 1. New project on [Railway](https://railway.app) → **Deploy from GitHub** → `froelichwilliam77-design/umbra-osint`.
 2. `railway.toml` already selects the Dockerfile and health-checks `/api/health`.
 3. Generate a domain. Open the HTTPS URL on phone or desktop. Add to Home Screen (PWA).
+4. After a deploy, if a phone PWA shows a **blank black screen**, reload once — `sw.js` is network-first for HTML (`umbra-shell-v2`) so stale `index.html` cannot point at missing hashed JS.
 
-No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`, `UMBRA_PLAYWRIGHT`, Twilio/Numverify keys.
+No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`, Twilio/Numverify keys. **Do not set `UMBRA_PLAYWRIGHT=1` on 1 GB.** Only enable Playwright on ≥2 GB, with `UMBRA_PLAYWRIGHT_MAX=1` (one Chromium, serial, killed after each GET).
 
 ```bash
 PORT=43180 HOST=0.0.0.0 npm start
 ```
 
-The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process for protected/WAF hosts. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service.
+The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process for protected/WAF hosts. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service. Concurrent curl children are capped (`UMBRA_CURL_MAX`, default 3). Response bodies are streamed and truncated (`UMBRA_BODY_LIMIT`, default 96 KB). Under memory pressure the scan aborts cleanly (`cancelled`) instead of death-spiraling into an OOM restart.
 
 ## PWA install (phone)
 
@@ -114,8 +117,8 @@ Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 ### Anti-bot (what actually ships)
 
 - Chrome-matched headers, UA rotation, HTTP/2 via undici, per-host workers, jitter, `Retry-After` on 429/503.
-- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts, **all silent mail oracles**, and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it.
-- **Playwright** GET-only escalation for Cloudflare/CAPTCHA rows (no logins, no credential stuffing, SSRF still applies). Cap with `UMBRA_PLAYWRIGHT_MAX` (default 20). **On by default in Docker/Railway** (`UMBRA_PLAYWRIGHT=1`, `NODE_ENV=production`). Locally it stays off unless you set `UMBRA_PLAYWRIGHT=1` after `npx playwright install chromium`. `UMBRA_PLAYWRIGHT=0` disables it.
+- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts, **silent mail oracles**, and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it. Concurrent children are capped (`UMBRA_CURL_MAX`, default 3).
+- **Playwright** is optional and **off by default** (Docker/Railway do not force it on). `UMBRA_PLAYWRIGHT=1` plus `npx playwright install chromium` retries blocked/escalate Cloudflare/CAPTCHA rows with an authorized public **GET** only (no logins, no credential stuffing, SSRF still applies). Hard caps: **one Chromium at a time**, killed after each navigation, `UMBRA_PLAYWRIGHT_MAX` default **1**. Do not enable on Railway 1 GB.
 
 Local without Docker: TLS impersonation is **partial** until `curl-impersonate` is on `PATH` or `UMBRA_CURL_IMPERSONATE` points at `curl_chrome146`. Check `GET /api/health` (`tlsImpersonation`, `tlsBinary`, `tlsNote`).
 
@@ -173,8 +176,15 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `HIBP_API_KEY` | unset | Optional breach oracle (skipped silently if unset) |
 | `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
-| `UMBRA_PLAYWRIGHT` | `1` in Docker/production; off locally | `1` to retry blocked/CAPTCHA GETs with Chromium; `0` to disable |
-| `UMBRA_PLAYWRIGHT_MAX` | `20` | Max Playwright GET retries per process |
+| `UMBRA_CURL_MAX` | `3` | Max concurrent curl-impersonate children |
+| `UMBRA_WORKERS` | `8` | Default global scan concurrency (max 16) |
+| `UMBRA_PER_HOST` | `1` | Default per-host concurrency (max 2) |
+| `UMBRA_BODY_LIMIT` | `96000` | Streamed response body cap (bytes) |
+| `UMBRA_PLAYWRIGHT` | `0` (unset = off) | `1` to escalate blocked/CAPTCHA GETs with Chromium. **Off on 1 GB Railway.** |
+| `UMBRA_PLAYWRIGHT_MAX` | `1` | Max Playwright retries per handle scan (serial, one browser) |
+| `UMBRA_MAX_SCANS` | `1` | Concurrent in-flight scans |
+| `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | `640` / `800` | Skip extra TLS/Playwright at soft; abort scan at hard |
+| `NODE_OPTIONS` | `--max-old-space-size=512` in Docker | V8 heap cap so RSS stays under the 1 GB cgroup |
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
 | `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
@@ -187,7 +197,9 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 # https://github.com/lexiforest/curl-impersonate/releases
 export UMBRA_CURL_IMPERSONATE=/path/to/curl_chrome146
 
-# Playwright (optional locally, default-on in Docker/Railway). GET-only escalation for CF/CAPTCHA rows.
+# Playwright (optional, large). GET-only escalation for CF/CAPTCHA rows.
+# Do not enable on Railway 1 GB. Serial, one browser, killed after each GET.
+npm install -D playwright
 npx playwright install chromium
-UMBRA_PLAYWRIGHT=1 npm start
+UMBRA_PLAYWRIGHT=1 UMBRA_PLAYWRIGHT_MAX=1 npm start
 ```

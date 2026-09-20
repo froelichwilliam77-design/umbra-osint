@@ -1,9 +1,14 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-type Props = { children: ReactNode };
-type State = { error: Error | null };
+interface Props {
+  children: ReactNode;
+}
 
-/** Surfaces mount/runtime errors as red text on black instead of a blank #root. */
+interface State {
+  error: Error | null;
+}
+
+/** Surfaces mount/runtime errors instead of a blank #root on dark phones. */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
 
@@ -12,46 +17,60 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("Umbra ErrorBoundary", error, info.componentStack);
+    console.error("Umbra failed to mount", error, info.componentStack);
   }
 
-  render() {
-    if (this.state.error) {
-      return (
-        <div
+  render(): ReactNode {
+    if (!this.state.error) return this.props.children;
+    const message = this.state.error.message || String(this.state.error);
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          margin: 0,
+          padding: "2rem 1.25rem",
+          background: "#07080c",
+          color: "#e8e6e1",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        <p style={{ color: "#8b7cf7", letterSpacing: "0.28em", fontSize: 12, fontFamily: "ui-monospace, monospace" }}>
+          UMBRA
+        </p>
+        <h1 style={{ color: "#ffffff", fontSize: 28, fontWeight: 600, margin: "12px 0" }}>Could not load the ledger</h1>
+        <p style={{ color: "#e8e6e1", lineHeight: 1.5 }}>
+          The UI crashed while mounting. Reload. If this is a phone PWA after a deploy, the old service worker is being
+          replaced — wait a second and retry.
+        </p>
+        <pre
           style={{
-            background: "#0a0a0f",
-            color: "#f87171",
-            minHeight: "100vh",
-            padding: "1.5rem",
-            fontFamily: "IBM Plex Mono, ui-monospace, monospace",
-            fontSize: 14,
+            marginTop: 16,
+            padding: 12,
+            background: "#12151d",
+            color: "#f07178",
+            borderRadius: 8,
             whiteSpace: "pre-wrap",
+            fontSize: 12,
           }}
         >
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Umbra failed to mount</div>
-          <div>{this.state.error.message}</div>
-          <button
-            type="button"
-            style={{
-              marginTop: 16,
-              padding: "8px 12px",
-              background: "#1a1a24",
-              color: "#f87171",
-              border: "1px solid #f87171",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-            onClick={() => {
-              this.setState({ error: null });
-              window.location.reload();
-            }}
-          >
-            Reload
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
+          {message}
+        </pre>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          style={{
+            marginTop: 20,
+            background: "#8b7cf7",
+            color: "#ffffff",
+            border: 0,
+            borderRadius: 8,
+            padding: "12px 18px",
+            fontSize: 16,
+          }}
+        >
+          Reload
+        </button>
+      </div>
+    );
   }
 }

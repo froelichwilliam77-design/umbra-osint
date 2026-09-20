@@ -7,6 +7,7 @@ export function registerPwa(): void {
       .then((reg) => {
         // Pull a fresh SW as soon as possible after deploy.
         void reg.update();
+        if (reg.waiting) void reg.waiting.postMessage({ type: "SKIP_WAITING" });
       })
       .catch(() => undefined);
   });

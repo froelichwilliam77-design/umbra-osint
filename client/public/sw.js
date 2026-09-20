@@ -1,10 +1,16 @@
-const CACHE = "umbra-shell-v3";
+const CACHE = "umbra-shell-v4";
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(["/manifest.webmanifest", "/icons/icon-192.png"]))
+      .then((cache) => cache.addAll(["/manifest.webmanifest", "/icons/icon-192.png"]).catch(() => undefined))
       .then(() => self.skipWaiting()),
   );
 });
@@ -41,8 +47,11 @@ self.addEventListener("fetch", (event) => {
       fetch(request, { cache: "no-store" }).catch(
         () =>
           new Response(
-            "<!doctype html><title>Offline</title><body style='background:#0a0a0f;color:#f87171;font-family:sans-serif;padding:2rem'>Umbra is offline. Reconnect and refresh.</body>",
-            { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+            "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Umbra offline</title><body style='margin:0;background:#07080c;color:#e8e6e1;font-family:system-ui,sans-serif;padding:2rem'><p style='color:#8b7cf7;letter-spacing:.28em;font-size:12px'>UMBRA</p><p>Needs a network connection after a deploy. Stale HTML is never reused — it would load missing JS and show a blank screen.</p><p><a href='/' style='color:#8b7cf7'>Retry</a></p></body>",
+            {
+              status: 503,
+              headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+            },
           ),
       ),
     );
@@ -65,7 +74,8 @@ self.addEventListener("fetch", (event) => {
           return (
             cached ||
             new Response("Asset unavailable", {
-              status: 503,
+              status: 504,
+              statusText: "offline",
               headers: { "Content-Type": "text/plain" },
             })
           );
@@ -88,7 +98,7 @@ self.addEventListener("fetch", (event) => {
       .catch(async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
-        return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+        return new Response("Offline", { status: 504, statusText: "offline", headers: { "Content-Type": "text/plain" } });
       }),
   );
 });

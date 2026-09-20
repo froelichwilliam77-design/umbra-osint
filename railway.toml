@@ -6,3 +6,5 @@ dockerfilePath = "Dockerfile"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
+# Single replica. Railway hobby/free is 1 GB RAM — Playwright + 24 workers OOMs.
+# Image defaults: UMBRA_PLAYWRIGHT=0, NODE_OPTIONS=--max-old-space-size=512.

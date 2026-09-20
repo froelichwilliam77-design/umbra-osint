@@ -12,8 +12,9 @@ import { extractMetadata } from "./extract.ts";
 import { fetchPublic, jitter, retryAfterMs, type HttpRequest, type HttpResponse } from "./http.ts";
 import {
   fetchPlaywright,
+  playwrightEnabled,
+  playwrightMax,
   shouldEscalateBrowser,
-  takePlaywrightSlot,
 } from "./playwright-pool.ts";
 import { categoryOf, loadSchema, sitesForScan, type WmnSite } from "./schema.ts";
 
@@ -233,13 +234,20 @@ export async function runHandleScan(
 ): Promise<void> {
   const sites = sitesForScan(opts.includeNsfw);
   const pool = new HostPool({ global: opts.workers, perHost: opts.perHost });
+  let playwrightLeft = playwrightEnabled() ? playwrightMax() : 0;
   await Promise.all(
     sites.map((site) =>
       pool.schedule(hostFromUrl(site.uri_check), async () => {
         const protectedHost = Boolean(site.protection?.length);
         await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
+        if (pool.isAborted) return;
         let row = await probeSite(scanId, handle, site);
-        if (shouldEscalateBrowser(row.status, row.reason, row.method) && takePlaywrightSlot()) {
+        if (
+          playwrightLeft > 0 &&
+          !pool.isAborted &&
+          shouldEscalateBrowser(row.status, row.reason, row.method)
+        ) {
+          playwrightLeft -= 1;
           const { url, pretty, headers } = materialize(site, handle);
           const pw = await fetchPlaywright({
             url,
@@ -285,4 +293,5 @@ export async function runHandleScan(
       }),
     ),
   );
+  pool.throwIfAborted();
 }
