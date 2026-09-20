@@ -192,6 +192,7 @@ export async function fetchImpersonate(req: HttpRequest): Promise<HttpResponse> 
     return skipped(req, started, "curl-impersonate disabled (UMBRA_CURL_MAX=0)");
   }
   if (isSoftMemoryPressure()) {
+    killImpersonateChildren();
     return skipped(req, started, "curl-impersonate skipped: memory pressure");
   }
   const cap = Math.max(1, impersonateMax());

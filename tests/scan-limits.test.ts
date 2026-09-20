@@ -38,6 +38,17 @@ describe("scan profile + SSE batching", () => {
     expect(inferDefaultProfile({})).toBe("full");
   });
 
+  it("exposes process vs cgroup RSS in the health snapshot", async () => {
+    const { memorySnapshot, setRssReaderForTests } = await import("../server/memory.ts");
+    setRssReaderForTests(() => 200 * 1024 * 1024);
+    const snap = memorySnapshot();
+    expect(snap.rssMb).toBe(200);
+    expect(snap.processRssMb).toBeGreaterThan(0);
+    expect(snap.softMb).toBe(450);
+    expect(snap.hardMb).toBe(600);
+    setRssReaderForTests(null);
+  });
+
   it("uses 450/600 RSS watermarks and 48 KB bodies", () => {
     delete process.env.UMBRA_MEM_SOFT_MB;
     delete process.env.UMBRA_MEM_HARD_MB;
