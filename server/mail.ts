@@ -192,13 +192,16 @@ export async function runMailScan(
     workers: number;
     perHost: number;
     onRow: (row: LedgerRow) => void;
+    pool?: HostPool;
+    onPool?: (pool: HostPool) => void;
   },
 ): Promise<void> {
   const oracles = loadSchema().oracles.filter((spec) => {
     if (spec.handler === "hibp" && !process.env.HIBP_API_KEY?.trim()) return false;
     return true;
   });
-  const pool = new HostPool({ global: opts.workers, perHost: opts.perHost });
+  const pool = opts.pool ?? new HostPool({ global: opts.workers, perHost: opts.perHost });
+  opts.onPool?.(pool);
   await Promise.all(
     oracles.map((spec) =>
       pool.schedule(spec.id, async () => {

@@ -24,7 +24,8 @@ import { HOST_LEDGER_COUNT, runHostScan } from "./host.ts";
 import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
 import { hashFoundAvatars } from "./phash.ts";
 import { buildIdentityGraph, compareScans } from "./graph.ts";
-import { clampPerHost, clampWorkers, maxConcurrentScans } from "./limits.ts";
+import { HostPool } from "./concurrency.ts";
+import { clampPerHost, clampWorkers, maxConcurrentScans, scanStaleMs } from "./limits.ts";
 import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
 
@@ -32,6 +33,9 @@ interface StoredScan {
   summary: ScanSummary;
   rows: LedgerRow[];
   listeners: Set<(event: ScanEvent) => void>;
+  pool: HostPool | null;
+  lastProgressAt: number;
+  doneEmitted: boolean;
 }
 
 const scans = new Map<string, StoredScan>();
@@ -85,18 +89,61 @@ export function runningScanCount(): number {
   return n;
 }
 
-export function canStartScan(): { ok: true } | { ok: false; status: number; error: string } {
+export function canStartScan(opts?: {
+  replace?: boolean;
+}): { ok: true } | { ok: false; status: number; error: string } {
   if (isHardMemoryPressure()) {
     return { ok: false, status: 503, error: "memory pressure — retry shortly" };
   }
-  if (runningScanCount() >= maxConcurrentScans()) {
+  const replace = opts?.replace !== false; // default true for interactive UI
+  if (!replace && runningScanCount() >= maxConcurrentScans()) {
     return {
       ok: false,
-      status: 429,
+      status: 409,
       error: "A scan is already running. 1 GB hosts keep one scan in flight.",
     };
   }
   return { ok: true };
+}
+
+function finishCancelled(stored: StoredScan, reason: string): void {
+  if (stored.summary.status !== "running" && stored.summary.status !== "cancelled") return;
+  stored.summary.status = "cancelled";
+  stored.summary.abortReason = reason;
+  if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
+  if (!stored.doneEmitted) {
+    stored.doneEmitted = true;
+    emit(stored, { type: "progress", progress: stored.summary.progress });
+    emit(stored, { type: "done", scan: stored.summary });
+  }
+}
+
+/** Cancel one running scan. Returns the summary, or null if missing / not running. */
+export function cancelScan(id: string, reason = "cancelled by user"): ScanSummary | null {
+  const stored = scans.get(id);
+  if (!stored) return null;
+  if (stored.summary.status !== "running") {
+    return stored.summary.status === "cancelled" ? stored.summary : null;
+  }
+  stored.pool?.abort(reason);
+  finishCancelled(stored, reason);
+  return stored.summary;
+}
+
+/** Cancel every running scan (used by replace semantics). */
+export function cancelAllRunning(reason = "replaced by new scan"): ScanSummary[] {
+  const out: ScanSummary[] = [];
+  for (const stored of scans.values()) {
+    if (stored.summary.status !== "running") continue;
+    stored.pool?.abort(reason);
+    finishCancelled(stored, reason);
+    out.push(stored.summary);
+  }
+  return out;
+}
+
+function touchProgress(stored: StoredScan): void {
+  stored.lastProgressAt = Date.now();
 }
 
 export async function startScan(input: {
@@ -105,7 +152,13 @@ export async function startScan(input: {
   includeNsfw?: boolean;
   workers?: number;
   perHost?: number;
+  /** When true (default), cancel any running scan so this one can start. */
+  replace?: boolean;
 }): Promise<ScanSummary> {
+  const replace = input.replace !== false;
+  if (replace && runningScanCount() >= maxConcurrentScans()) {
+    cancelAllRunning("replaced by new scan");
+  }
   const requestedMode: ScanMode = input.mode ?? "auto";
   const kind: DetectedKind = resolveMode(input.query, requestedMode);
   const normalized = normalizeQuery(input.query, kind);
@@ -146,7 +199,7 @@ export async function startScan(input: {
     includeNsfw,
     siteCount,
   };
-  const stored: StoredScan = { summary, rows: [], listeners: new Set() };
+  const stored: StoredScan = { summary, rows: [], listeners: new Set(), pool: null, lastProgressAt: Date.now(), doneEmitted: false };
   scans.set(id, stored);
 
   if (!preflight.ok) {
@@ -163,8 +216,10 @@ export async function startScan(input: {
 async function execute(stored: StoredScan, workers: number, perHost: number): Promise<void> {
   let sinceProgress = 0;
   const onRow = (row: LedgerRow) => {
+    if (stored.summary.status === "cancelled") return;
     stored.rows.push(row);
     bump(stored.summary.progress, row.status);
+    touchProgress(stored);
     emit(stored, { type: "row", row });
     sinceProgress += 1;
     if (sinceProgress >= 8) {
@@ -172,6 +227,11 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
       sinceProgress = 0;
     }
   };
+  const onPool = (pool: HostPool) => {
+    stored.pool = pool;
+  };
+  const shouldAbort = () => stored.summary.status === "cancelled";
+
   const flushProgress = () => {
     emit(stored, { type: "progress", progress: stored.summary.progress });
     sinceProgress = 0;
@@ -184,6 +244,7 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
         workers,
         perHost,
         onRow,
+        onPool,
       });
     } else if (stored.summary.mode === "mail") {
       const dossier = await buildMailDossier(stored.summary.query);
@@ -312,7 +373,7 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
           : undefined,
       });
       stored.summary.progress.total = stored.summary.siteCount;
-      await runMailScan(stored.summary.id, stored.summary.query, { workers, perHost, onRow });
+      await runMailScan(stored.summary.id, stored.summary.query, { workers, perHost, onRow, onPool });
     } else if (stored.summary.mode === "phone") {
       await runPhoneScan(stored.summary.id, stored.summary.query, {
         onRow,
@@ -353,11 +414,47 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
     emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
     flushProgress();
+    stored.pool = null;
+    if (stored.doneEmitted) return;
     if (stored.summary.status === "running") stored.summary.status = "done";
-    stored.summary.finishedAt = new Date().toISOString();
+    if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
+    stored.doneEmitted = true;
     emit(stored, { type: "done", scan: stored.summary });
   }
 }
+
+/** Auto-cancel scans that make no progress for scanStaleMs(). */
+function sweepStaleScans(): void {
+  const staleMs = scanStaleMs();
+  const now = Date.now();
+  for (const stored of scans.values()) {
+    if (stored.summary.status !== "running") continue;
+    if (now - stored.lastProgressAt < staleMs) continue;
+    const mins = Math.round(staleMs / 60_000);
+    const reason = `stale timeout — no progress for ${mins}m`;
+    stored.pool?.abort(reason);
+    finishCancelled(stored, reason);
+  }
+}
+
+let staleTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startStaleScanWatchdog(): void {
+  if (staleTimer) return;
+  staleTimer = setInterval(() => {
+    try {
+      sweepStaleScans();
+    } catch {
+      /* ignore */
+    }
+  }, 30_000);
+  // unref so the timer does not keep the process alive in tests
+  staleTimer.unref?.();
+}
+
+// Start watchdog when this module loads in the server process.
+startStaleScanWatchdog();
+
 
 export function compareStored(aId: string, bId: string) {
   const a = scans.get(aId);

@@ -77,6 +77,13 @@ export function maxConcurrentScans(): number {
   return envInt("UMBRA_MAX_SCANS", DEFAULT_MAX_SCANS, 1, 4);
 }
 
+/** No-progress auto-cancel (ms). Default 10 minutes. */
+export const DEFAULT_SCAN_STALE_MS = 10 * 60 * 1000;
+
+export function scanStaleMs(): number {
+  return envInt("UMBRA_SCAN_STALE_MS", DEFAULT_SCAN_STALE_MS, 60_000, 60 * 60 * 1000);
+}
+
 export function memorySoftMb(): number {
   return envInt("UMBRA_MEM_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, 8192);
 }
@@ -98,6 +105,7 @@ export function scanLimitsPublic(): {
   maxConcurrentScans: number;
   playwrightMax: number;
   playwrightConcurrent: number;
+  scanStaleMs: number;
 } {
   return {
     workers: defaultWorkers(),
@@ -108,5 +116,6 @@ export function scanLimitsPublic(): {
     maxConcurrentScans: maxConcurrentScans(),
     playwrightMax: playwrightRetryMax(),
     playwrightConcurrent: playwrightConcurrent(),
+    scanStaleMs: scanStaleMs(),
   };
 }

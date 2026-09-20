@@ -8,7 +8,7 @@ import type { ScanMode } from "../shared/types.ts";
 import { renderExport } from "./exports.ts";
 import { healthPayload } from "./health.ts";
 import { importWmnPayload, reloadSchema, schemaStats } from "./schema.ts";
-import { canStartScan, compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
+import { canStartScan, cancelScan, compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -47,15 +47,17 @@ app.get("/api/scans/compare", async (req, reply) => {
 });
 
 app.post("/api/scans", async (req, reply) => {
-  const gate = canStartScan();
-  if (!gate.ok) return reply.code(gate.status).send({ error: gate.error });
   const body = (req.body ?? {}) as {
     query?: string;
     mode?: ScanMode;
     includeNsfw?: boolean;
     workers?: number;
     perHost?: number;
+    replace?: boolean;
   };
+  const replace = body.replace !== false; // default true — interactive UI replaces wedged scans
+  const gate = canStartScan({ replace });
+  if (!gate.ok) return reply.code(gate.status).send({ error: gate.error });
   if (!body.query || !body.query.trim()) {
     return reply.code(400).send({ error: "query is required" });
   }
@@ -65,8 +67,23 @@ app.post("/api/scans", async (req, reply) => {
     includeNsfw: body.includeNsfw,
     workers: body.workers,
     perHost: body.perHost,
+    replace,
   });
   return scan;
+});
+
+app.post("/api/scans/:id/cancel", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const summary = cancelScan(id, "cancelled by user");
+  if (!summary) return reply.code(404).send({ error: "scan not found or not running" });
+  return { ok: true, scan: summary };
+});
+
+app.delete("/api/scans/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const summary = cancelScan(id, "cancelled by user");
+  if (!summary) return reply.code(404).send({ error: "scan not found or not running" });
+  return { ok: true, scan: summary };
 });
 
 app.get("/api/scans/:id", async (req, reply) => {

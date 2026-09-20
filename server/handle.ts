@@ -230,10 +230,13 @@ export async function runHandleScan(
     workers: number;
     perHost: number;
     onRow: (row: LedgerRow) => void;
+    pool?: HostPool;
+    onPool?: (pool: HostPool) => void;
   },
 ): Promise<void> {
   const sites = sitesForScan(opts.includeNsfw);
-  const pool = new HostPool({ global: opts.workers, perHost: opts.perHost });
+  const pool = opts.pool ?? new HostPool({ global: opts.workers, perHost: opts.perHost });
+  opts.onPool?.(pool);
   let playwrightLeft = playwrightEnabled() ? playwrightMax() : 0;
   await Promise.all(
     sites.map((site) =>

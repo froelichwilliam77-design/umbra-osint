@@ -186,15 +186,25 @@ export default function App() {
     setCompare(null);
     sourceRef.current?.close();
     try {
-      const res = await fetch("/api/scans", {
+      const payload = {
+        query: q,
+        mode: override?.mode ?? mode,
+        includeNsfw,
+        replace: true,
+      };
+      let res = await fetch("/api/scans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: q,
-          mode: override?.mode ?? mode,
-          includeNsfw,
-        }),
+        body: JSON.stringify(payload),
       });
+      // One auto-retry on conflict / busy — cancel-replace should make this rare.
+      if (res.status === 409 || res.status === 429) {
+        res = await fetch("/api/scans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, replace: true }),
+        });
+      }
       const data = (await res.json()) as ScanSummary & { error?: string };
       if (!res.ok) throw new Error(data.error || "Scan failed");
       setScan(data);
@@ -233,6 +243,21 @@ export default function App() {
       };
     } catch (err) {
       setBusy(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+
+  const cancel = async () => {
+    if (!scan || scan.status !== "running") return;
+    try {
+      const res = await fetch(`/api/scans/${scan.id}/cancel`, { method: "POST" });
+      const data = (await res.json()) as { error?: string; scan?: ScanSummary };
+      if (!res.ok) throw new Error(data.error || "Cancel failed");
+      if (data.scan) setScan(data.scan);
+      setBusy(false);
+      sourceRef.current?.close();
+    } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -458,6 +483,17 @@ export default function App() {
           <Button type="submit" size="lg" disabled={busy} className="tap-lg w-full sm:w-auto">
             {busy ? "Recon…" : "Recon"}
           </Button>
+          {busy && scan?.status === "running" && (
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              className="tap-lg w-full sm:w-auto"
+              onClick={() => void cancel()}
+            >
+              Cancel
+            </Button>
+          )}
         </form>
         {scan && (
           <div className="mt-3 flex flex-wrap gap-2 font-mono text-[11px] text-fog-300">

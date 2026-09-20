@@ -182,6 +182,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `UMBRA_BODY_LIMIT` | `96000` | Streamed response body cap (bytes) |
 | `UMBRA_PLAYWRIGHT` | `0` (unset = off) | `1` to escalate blocked/CAPTCHA GETs with Chromium. **Off on 1 GB Railway.** |
 | `UMBRA_PLAYWRIGHT_MAX` | `1` | Max Playwright retries per handle scan (serial, one browser) |
+| `UMBRA_SCAN_STALE_MS` | `600000` (10m) | Auto-cancel a scan that makes no progress |
 | `UMBRA_MAX_SCANS` | `1` | Concurrent in-flight scans |
 | `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | `640` / `800` | Skip extra TLS/Playwright at soft; abort scan at hard |
 | `NODE_OPTIONS` | `--max-old-space-size=512` in Docker | V8 heap cap so RSS stays under the 1 GB cgroup |
