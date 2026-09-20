@@ -11,7 +11,8 @@ describe("email dossier basics", () => {
     expect(detectKind("press@github.com")).toBe("mail");
     expect(detectKind("github.com")).toBe("host");
     expect(detectKind("+14155552671")).toBe("phone");
-    expect(detectKind("https://github.com")).toBe("host");
+    expect(detectKind("https://github.com")).toBe("crawl");
+    expect(detectKind("github.com")).toBe("host");
     expect(resolveMode("octocat", "mail")).toBe("mail");
   });
 

@@ -1,5 +1,5 @@
 import type { LedgerRow, ScanSummary } from "../shared/types.ts";
-import { exportJson, exportMarkdown } from "../shared/exports.ts";
+import { exportExecutiveHtml, exportJson, exportMarkdown } from "../shared/exports.ts";
 
 export { exportJson, exportMarkdown };
 
@@ -98,7 +98,7 @@ export function renderExport(
     case "csv":
       return { body: exportCsv(rows), contentType: "text/csv", filename: `${base}.csv` };
     case "html":
-      return { body: exportHtml(scan, rows), contentType: "text/html", filename: `${base}.html` };
+      return { body: exportExecutiveHtml(scan, rows), contentType: "text/html", filename: `${base}.html` };
     case "md":
     case "markdown":
       return { body: exportMarkdown(scan, rows), contentType: "text/markdown", filename: `${base}.md` };

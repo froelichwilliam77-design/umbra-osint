@@ -5,6 +5,12 @@ export const LEDGER_ROW_HEIGHT = 64;
 export const LEDGER_OVERSCAN = 16;
 export const LEAN_SITE_CAP = 200;
 export const FAST_TIER_SIZE = 150;
+export const LEAN_CRAWL_PAGES = 25;
+export const POWER_CRAWL_PAGES = 100;
+export const WATCH_MIN_INTERVAL_MS = 60 * 60 * 1000;
+export const WATCH_DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const POWER_RAM_MB = 2048;
+export const POWER_WORKERS = 8;
 
 export type ScanProfile = "lean" | "full";
 

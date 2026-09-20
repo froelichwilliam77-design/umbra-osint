@@ -4,7 +4,7 @@ import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ScanMode } from "../shared/types.ts";
+import type { DetectedKind, ScanMode } from "../shared/types.ts";
 import { renderExport } from "./exports.ts";
 import { healthPayload } from "./health.ts";
 import { importWmnPayload, reloadSchema, schemaStats } from "./schema.ts";
@@ -20,6 +20,17 @@ import {
   listCases,
   persistCase,
 } from "./cases.ts";
+import {
+  createWatch,
+  deleteWatch,
+  getWatch,
+  listAlerts,
+  listWatches,
+  markAlertRead,
+  runWatch,
+  startWatchScheduler,
+  watchesPersistMode,
+} from "./watches.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -199,6 +210,57 @@ app.get("/api/cases/:id/export", async (req, reply) => {
   return reply.send(file.body);
 });
 
+app.get("/api/watches", async () => ({ persist: watchesPersistMode(), watches: listWatches(), alerts: listAlerts() }));
+
+app.post("/api/watches", async (req, reply) => {
+  const body = (req.body ?? {}) as {
+    query?: string;
+    mode?: DetectedKind | "auto";
+    intervalMs?: number;
+    intervalHours?: number;
+  };
+  if (!body.query?.trim()) return reply.code(400).send({ error: "query is required" });
+  try {
+    return createWatch({
+      query: body.query,
+      mode: body.mode,
+      intervalMs: body.intervalMs,
+      intervalHours: body.intervalHours,
+    });
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/watches/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = getWatch(id);
+  if (!rec) return reply.code(404).send({ error: "watch not found" });
+  return rec;
+});
+
+app.delete("/api/watches/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!deleteWatch(id)) return reply.code(404).send({ error: "watch not found" });
+  return { ok: true };
+});
+
+app.post("/api/watches/:id/run", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = await runWatch(id);
+  if (!rec) return reply.code(404).send({ error: "watch not found" });
+  return rec;
+});
+
+app.get("/api/alerts", async () => ({ alerts: listAlerts() }));
+
+app.post("/api/alerts/:id/read", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = markAlertRead(id, true);
+  if (!rec) return reply.code(404).send({ error: "alert not found" });
+  return rec;
+});
+
 const clientDir = join(root, "dist/client");
 if (existsSync(clientDir)) {
   await app.register(fastifyStatic, {
@@ -222,5 +284,6 @@ if (existsSync(clientDir)) {
   });
 }
 
+startWatchScheduler();
 await app.listen({ port: PORT, host: HOST });
 app.log.info(`Umbra listening on http://${HOST}:${PORT}`);

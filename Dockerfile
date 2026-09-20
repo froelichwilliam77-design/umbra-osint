@@ -39,6 +39,7 @@ ENV UMBRA_PLAYWRIGHT_MAX=1
 ENV UMBRA_PROFILE=lean
 ENV UMBRA_WORKERS=4
 # Child curl processes are invisible to Node RSS and blew the 1 GB cgroup (~951 MB).
+# Attach a Railway volume at /data (cases + watches JSON). Override with UMBRA_CASES_DIR.
 ENV UMBRA_CURL_MAX=0
 ENV UMBRA_BODY_LIMIT=48000
 ENV UMBRA_MEM_SOFT_MB=450
@@ -46,6 +47,10 @@ ENV UMBRA_MEM_HARD_MB=600
 ENV NODE_OPTIONS=--max-old-space-size=384
 EXPOSE 43180
 
+# Persist cases/watches across deploys: Railway → service → Volumes → Mount path `/data`
+VOLUME ["/data"]
+
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.
 # curl-impersonate (Chrome TLS) and Playwright Chromium are child processes — not extra services.
+# Power mode (UMBRA_POWER=1, ≥2 GB RAM): set UMBRA_CURL_MAX=1 and raise UMBRA_WORKERS. Playwright stays off.
 CMD ["npm", "start"]

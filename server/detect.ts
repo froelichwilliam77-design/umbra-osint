@@ -6,6 +6,7 @@ import {
 } from "../shared/constants.ts";
 import type { DetectedKind, PreflightResult, ScanMode } from "../shared/types.ts";
 import { looksLikePhone, normalizePhone, preflightPhone as phonePreflight } from "./phone.ts";
+import { SsrfError, assertSafeUrl } from "./ssrf.ts";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -35,10 +36,19 @@ export function looksLikeDomain(raw: string): boolean {
   return tld.length >= 2 && labels.length >= 2;
 }
 
+export function looksLikeUrl(raw: string): boolean {
+  return /^https?:\/\//i.test(raw.trim());
+}
+
+export function looksLikeCrawlCommand(raw: string): boolean {
+  return /^crawl\s+/i.test(raw.trim());
+}
+
 export function detectKind(raw: string): DetectedKind {
   const q = raw.trim();
   if (looksLikeEmail(q)) return "mail";
   if (looksLikePhone(q)) return "phone";
+  if (looksLikeUrl(q) || looksLikeCrawlCommand(q)) return "crawl";
   const hostish = q.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
   if (hostish.includes(".") && looksLikeDomain(q)) return "host";
   return "handle";
@@ -46,6 +56,7 @@ export function detectKind(raw: string): DetectedKind {
 
 export function resolveMode(raw: string, mode: ScanMode): DetectedKind {
   if (mode === "auto") return detectKind(raw);
+  if (mode === "crawl") return "crawl";
   return mode;
 }
 
@@ -53,6 +64,18 @@ export function normalizeQuery(raw: string, kind: DetectedKind): string {
   const q = raw.trim();
   if (kind === "mail") return q.toLowerCase();
   if (kind === "phone") return normalizePhone(q);
+  if (kind === "crawl") {
+    let seed = q.replace(/^crawl(?:\s+this)?(?:\s+(?:host|site|url))?\s+/i, "").trim();
+    if (!seed) seed = q;
+    if (!/^https?:\/\//i.test(seed)) seed = `https://${seed.replace(/^\/\//, "")}`;
+    try {
+      const url = new URL(seed);
+      url.hash = "";
+      return url.href;
+    } catch {
+      return seed;
+    }
+  }
   if (kind === "host") {
     return q
       .replace(/^https?:\/\//i, "")
@@ -230,6 +253,30 @@ export function preflightHost(domain: string): PreflightResult {
     ok: errors.length === 0,
     kind: "host",
     query: domain,
+    normalized,
+    notes,
+    warnings,
+    errors,
+  };
+}
+
+export function preflightCrawl(seed: string): PreflightResult {
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const normalized = normalizeQuery(seed, "crawl");
+  try {
+    assertSafeUrl(normalized);
+    const url = new URL(normalized);
+    notes.push(`Same-origin crawl of ${url.origin} (SSRF-guarded, page-capped).`);
+  } catch (err) {
+    if (err instanceof SsrfError) errors.push(err.message);
+    else errors.push("Not a crawlable http(s) URL.");
+  }
+  return {
+    ok: errors.length === 0,
+    kind: "crawl",
+    query: seed,
     normalized,
     notes,
     warnings,

@@ -1,6 +1,6 @@
 # Umbra
 
-Public-OSINT workstation for **handle**, **mail**, **host**, and **phone** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
+Public-OSINT workstation for **handle**, **mail**, **host**, **phone**, and **crawl** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
 Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
 
@@ -10,7 +10,9 @@ Host mode pulls RDAP, DNS, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS hea
 
 Phone mode E.164-normalizes with libphonenumber, adds country/region/type/timezone hints (NANP NPA labels where known), public lookup pivots (Google, Truecaller, Whitepages, wa.me, …), and optional Twilio/Numverify carrier lookups behind env keys. It never sends SMS.
 
-Finished scans auto-save as **cases** (dossier + found rows + graph) in IndexedDB/localStorage, and on a server JSON volume when `UMBRA_CASES_DIR` or `/data` is writable. Reopen yesterday’s case, export JSON/Markdown, or compare two cases side by side without a full re-scan. After mail, **Run pivots** queues local-part handle then mail-domain host (one scan at a time — 1 GB safe).
+Finished scans auto-save as **cases** (dossier + found rows + graph). With a disk volume (`UMBRA_CASES_DIR` or `/data/cases`) they survive restarts and sync across devices; otherwise the UI falls back to IndexedDB/localStorage. Reopen a case, export an executive **HTML** report (print-to-PDF), Markdown, or JSON, or compare two cases side by side. **Watches** re-run a lean scan on an interval (min 1h, default 24h), diff new founds, and show an in-app Alerts panel — optional `UMBRA_ALERT_WEBHOOK` POSTs, no email. After mail or crawl, **Run pivots** queues follow-up scans (one at a time — 1 GB safe).
+
+Paste an `https://` URL or **Crawl** a host for a bounded same-origin spider (25 pages lean / 100 power) that harvests emails, usernames, links, and headers into the ledger. SSRF still blocks private/loopback/metadata.
 
 **Authorized use only.** Run it against identifiers you are allowed to investigate. Server-side fetches refuse private, loopback, link-local, and metadata addresses (SSRF).
 
@@ -57,7 +59,9 @@ Live console screenshots:
 3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (high-signal first). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
-6. **Cases** — finished scans auto-save. Open / delete / export JSON or Markdown. **Side by side** compares two saved cases.
+6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases.
+7. **Crawl** — `https://example.com` (or the Crawl chip / `crawl this host example.com`) walks same-origin pages, then optional pivots.
+8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts.
 
 ## Railway (public HTTPS)
 
@@ -65,13 +69,41 @@ Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, l
 
 **1 GB hobby / free plan:** keep Playwright **off**. A full 1000-site handle scan with curl-impersonate used to peak at **~1.34 GB RSS** and freeze the phone UI. Production now defaults to:
 
-- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites, high-signal mail oracles first (quarantined / chronically blocked skipped). Toggle **Full** in the UI for the complete map.
-- `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=1`, `UMBRA_BODY_LIMIT=48000`
+- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites, high-signal mail oracles first (quarantined / chronically blocked skipped), crawl cap 25 pages. Toggle **Full** in the UI for the complete map.
+- `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=0` on 1 GB (TLS children stay off so the cgroup does not OOM). `UMBRA_BODY_LIMIT=48000`
 - RSS cancel at **450 / 600 MB** (`UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB`)
 - `NODE_OPTIONS=--max-old-space-size=384`, Playwright off
 - SSE row events batched (~150 ms); the ledger virtualizes ~40 visible rows so a phone stays responsive
 
 Target: a mail scan and a lean handle scan complete on 1 GB without an OOM restart.
+
+### Persistent volume (cases + watches)
+
+Railway disks are ephemeral unless you attach a volume. In the service **Settings → Volumes**:
+
+1. Add a volume, mount path **`/data`**.
+2. Cases write JSON to `/data/cases` (or `UMBRA_CASES_DIR`). Watches/alerts live beside them (`_watches`).
+3. `GET /api/health` → `cases.persist: "volume"` and `watches.persist: "volume"` when the mount is writable.
+4. Without a volume the API stays in-memory; the UI falls back to IndexedDB so a phone still has local cases.
+
+Docker Compose already mounts named volume `umbra-data` at `/data`.
+
+### Power mode (optional, not 1 GB)
+
+Keep the hobby plan lean. To allow TLS impersonation and more workers:
+
+1. Railway service → **Settings → Resources** → raise memory to **≥ 2 GB**.
+2. Set env:
+   - `UMBRA_POWER=1`
+   - `UMBRA_PROFILE=full` (optional; Full in the UI on a ≥2 GB box also engages power)
+   - `UMBRA_CURL_MAX=1`
+   - `UMBRA_WORKERS=8`
+   - `UMBRA_MEM_SOFT_MB=900` / `UMBRA_MEM_HARD_MB=1400` (scale watermarks with RAM)
+   - `NODE_OPTIONS=--max-old-space-size=768`
+3. **Do not** set `UMBRA_PLAYWRIGHT=1` unless you install Chromium yourself. Power never turns Playwright on.
+4. Crawl cap becomes 100 pages. Health payload `power.enabled` should be true.
+
+The UI **Full** chip on a 1 GB box still runs the full site map but **does not** spawn curl-impersonate children unless `UMBRA_POWER=1` or RAM ≥ 2 GB.
 
 1. New project on [Railway](https://railway.app) → **Deploy from GitHub** → `froelichwilliam77-design/umbra-osint`.
 2. `railway.toml` already selects the Dockerfile and health-checks `/api/health`.
@@ -114,7 +146,8 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 | **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in links) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. **Run pivots** → local-part handle then mail domain host. |
 | **Host** | hostname sanity | RDAP, DNS, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN. |
 | **Phone** | E.164 / libphonenumber | Country, NANP region, line type, timezone hint, optional Twilio/Numverify carrier, public lookup pivots. Never SMS. |
-| **Auto** | — | `@` → mail; phone-shaped → phone; dotted hostname with a TLD → host; otherwise handle. |
+| **Crawl** | http(s) URL or `crawl this host …`; SSRF | Bounded same-origin spider (25 pages lean / 100 power). Harvests emails, usernames, links, security headers. No form submit, no SMTP/SMS. |
+| **Auto** | — | `@` → mail; phone-shaped → phone; `http(s)://` or “crawl this host” → crawl; dotted hostname with a TLD → host; otherwise handle. |
 
 ### Classification
 
@@ -165,23 +198,25 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 
 ## API
 
-- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile? }` (`profile`: `lean` | `full`)
+- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile? }` (`mode`: `auto` \| `handle` \| `mail` \| `host` \| `phone` \| `crawl`; `profile`: `lean` \| `full`)
 - `GET /api/scans` in-memory summaries (for compare)
 - `GET /api/scans/:id` snapshot + graph
 - `GET /api/scans/:id/events` SSE ledger (batched; found rows flush immediately)
 - `GET /api/scans/:id/graph`
 - `GET /api/scans/compare?a=&b=` found-site diff of two in-memory scans
-- `GET /api/scans/:id/export?format=md|json|jsonl|csv|html`
+- `GET /api/scans/:id/export?format=md|json|jsonl|csv|html` (HTML is print-ready executive report)
 - `GET /api/cases` persisted cases (`persist`: `volume` \| `memory`)
 - `POST /api/cases` `{ scanId }` or imported case JSON
-- `GET /api/cases/:id` · `DELETE /api/cases/:id` · `GET /api/cases/:id/export?format=json|md`
+- `GET /api/cases/:id` · `DELETE /api/cases/:id` · `GET /api/cases/:id/export?format=json|md|html`
 - `GET /api/cases/compare?a=&b=`
+- `GET /api/watches` · `POST /api/watches` `{ query, mode?, intervalHours? }` · `DELETE /api/watches/:id` · `POST /api/watches/:id/run`
+- `GET /api/alerts` · `POST /api/alerts/:id/read`
 - `GET /api/schema` registry stats (`oraclesLean`)
-- `GET /api/health` TLS / Playwright / HIBP / cases persist flags
+- `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / power flags
 
 ## Tests
 
-Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers (LastPass, Issuu, Steam, Discord, Hudson Rock, …), extractors, schema/oracle integrity, and SSRF blocks.
+Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, SSRF blocks, persistent cases + executive HTML, watch diffs, power-mode caps, and bounded crawl harvest/SSRF.
 
 ## Environment
 
@@ -191,13 +226,18 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
 | `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger. When unset, HIBP is omitted (not a miss). |
-| `UMBRA_CASES_DIR` | `/data/umbra-cases` if `/data` is writable, else unset | Optional JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
-| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first) |
+| `UMBRA_CASES_DIR` | `/data/cases` if `/data` is writable, else unset | JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
+| `UMBRA_WATCHES_DIR` | `<cases>/_watches` or `/data/watches` | Watch + alert JSON. Same volume as cases. |
+| `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts. No email is sent unless you wire the webhook. |
+| `UMBRA_WATCH_MIN_MS` | `3600000` (1h) | Minimum watch interval (tests may lower this). Default interval is 24h. |
+| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first). Also a power opt-in. |
+| `UMBRA_POWER` | unset | `1` enables power: 8 workers, `UMBRA_CURL_MAX` at least 1, 100-page crawl. Requires ≥2 GB in production. Playwright stays off. |
+| `UMBRA_CRAWL_PAGES` | `25` lean / `100` power | Max pages for a same-origin crawl. |
 | `UMBRA_LEAN_SITES` | `200` | Cap for lean handle scans |
 | `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |
 | `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate. `auto` uses it only on WAF-heavy hosts |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
-| `UMBRA_CURL_MAX` | `0` | Max concurrent curl-impersonate children (hard cap 2). **0 on 1 GB Railway** — children are invisible to Node RSS and OOMed the cgroup |
+| `UMBRA_CURL_MAX` | `0` | Max concurrent curl-impersonate children (hard cap 2). **0 on 1 GB Railway**. Power sets this to **1**. |
 | `UMBRA_WORKERS` | `4` | Default global scan concurrency (hard cap 8) |
 | `UMBRA_PER_HOST` | `1` | Default per-host concurrency (max 2) |
 | `UMBRA_BODY_LIMIT` | `48000` | Streamed response body cap (bytes) |

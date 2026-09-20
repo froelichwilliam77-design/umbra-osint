@@ -2,11 +2,15 @@
 
 import {
   FAST_TIER_SIZE,
+  LEAN_CRAWL_PAGES,
   LEAN_SITE_CAP,
+  POWER_CRAWL_PAGES,
+  POWER_WORKERS,
   inferDefaultProfile,
   parseScanProfile,
   type ScanProfile,
 } from "../shared/scan-limits.ts";
+import { powerActive, powerEnvEnabled } from "./power.ts";
 
 export type { ScanProfile };
 
@@ -44,8 +48,20 @@ export const DEFAULT_MAX_SCANS = 1;
 export const DEFAULT_MEM_SOFT_MB = 450;
 export const DEFAULT_MEM_HARD_MB = 600;
 
+function envFlag(name: string): boolean {
+  const v = process.env[name]?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 export function defaultWorkers(): number {
-  return envInt("UMBRA_WORKERS", DEFAULT_WORKERS, MIN_WORKERS, MAX_WORKERS_CAP);
+  if (envFlag("UMBRA_POWER")) {
+    const raw = process.env.UMBRA_WORKERS;
+    if (raw == null || raw.trim() === "" || Number(raw) <= DEFAULT_WORKERS) {
+      return Math.min(maxWorkers(), POWER_WORKERS);
+    }
+  }
+  const fallback = powerActive() ? Math.min(maxWorkers(), POWER_WORKERS) : DEFAULT_WORKERS;
+  return envInt("UMBRA_WORKERS", fallback, MIN_WORKERS, maxWorkers());
 }
 
 export function maxWorkers(): number {
@@ -68,7 +84,13 @@ export function clampPerHost(n?: number): number {
 }
 
 export function impersonateMax(): number {
-  return envInt("UMBRA_CURL_MAX", DEFAULT_CURL_MAX, 0, MAX_CURL_CAP);
+  if (envFlag("UMBRA_POWER")) {
+    const raw = process.env.UMBRA_CURL_MAX;
+    if (raw == null || raw.trim() === "" || raw.trim() === "0") return 1;
+    return envInt("UMBRA_CURL_MAX", 1, 1, MAX_CURL_CAP);
+  }
+  const fallback = powerActive() ? 1 : DEFAULT_CURL_MAX;
+  return envInt("UMBRA_CURL_MAX", fallback, 0, MAX_CURL_CAP);
 }
 
 export function bodyLimit(): number {
@@ -124,6 +146,13 @@ export function fastTierSize(): number {
   return envInt("UMBRA_FAST_TIER", FAST_TIER_SIZE, 40, 300);
 }
 
+export function crawlPageCap(profile?: ScanProfile): number {
+  const power = powerActive(profile);
+  const fallback = power ? POWER_CRAWL_PAGES : LEAN_CRAWL_PAGES;
+  const max = power ? 200 : 80;
+  return envInt("UMBRA_CRAWL_PAGES", fallback, 5, max);
+}
+
 export function scanLimitsPublic(): {
   profile: ScanProfile;
   workers: number;
@@ -139,6 +168,9 @@ export function scanLimitsPublic(): {
   fastTier: number;
   memSoftMb: number;
   memHardMb: number;
+  crawlPages: number;
+  power: boolean;
+  powerEnv: boolean;
 } {
   return {
     profile: defaultScanProfile(),
@@ -155,5 +187,8 @@ export function scanLimitsPublic(): {
     fastTier: fastTierSize(),
     memSoftMb: memorySoftMb(),
     memHardMb: Math.max(memoryHardMb(), memorySoftMb() + 32),
+    crawlPages: crawlPageCap(),
+    power: powerActive(),
+    powerEnv: powerEnvEnabled(),
   };
 }

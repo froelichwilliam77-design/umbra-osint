@@ -1,5 +1,5 @@
-export type ScanMode = "auto" | "handle" | "mail" | "host" | "phone";
-export type DetectedKind = "handle" | "mail" | "host" | "phone";
+export type ScanMode = "auto" | "handle" | "mail" | "host" | "phone" | "crawl";
+export type DetectedKind = "handle" | "mail" | "host" | "phone" | "crawl";
 
 export type LedgerStatus =
   | "found"
@@ -37,7 +37,8 @@ export type LedgerCategory =
   | "tls"
   | "phone"
   | "graph"
-  | "nsfw";
+  | "nsfw"
+  | "crawl";
 
 export interface MetadataCard {
   displayName?: string;
@@ -233,6 +234,23 @@ export interface HostDossier {
   bimi?: { present: boolean; raw?: string };
 }
 
+export interface CrawlDossier {
+  kind: "crawl";
+  seed: string;
+  origin: string;
+  host: string;
+  pages: number;
+  skipped: number;
+  blocked: number;
+  emails: string[];
+  usernames: string[];
+  links: string[];
+  headers: Record<string, string>;
+  title?: string;
+  maxPages: number;
+  scope: "same-origin";
+}
+
 export interface PhoneDossier {
   raw: string;
   e164?: string;
@@ -255,7 +273,7 @@ export interface PhoneDossier {
 
 export interface GraphNode {
   id: string;
-  kind: "handle" | "mail" | "host" | "phone" | "profile" | "avatar" | "oracle";
+  kind: "handle" | "mail" | "host" | "phone" | "crawl" | "profile" | "avatar" | "oracle";
   label: string;
   status?: LedgerStatus;
   url?: string;
@@ -310,20 +328,21 @@ export interface ScanSummary {
   abortReason?: string;
   preflight: PreflightResult;
   progress: ScanProgress;
-  dossier?: MailDossier | HostDossier | PhoneDossier;
+  dossier?: MailDossier | HostDossier | PhoneDossier | CrawlDossier;
   graph?: IdentityGraph;
   avatarClusters?: AvatarCluster[];
   includeNsfw: boolean;
   siteCount: number;
   profile?: "lean" | "full";
   profileNote?: string;
+  source?: "user" | "watch";
 }
 
 export type ScanEvent =
   | { type: "hello"; scan: ScanSummary }
   | { type: "row"; row: LedgerRow }
   | { type: "rows"; rows: LedgerRow[] }
-  | { type: "dossier"; dossier: MailDossier | HostDossier | PhoneDossier }
+  | { type: "dossier"; dossier: MailDossier | HostDossier | PhoneDossier | CrawlDossier }
   | { type: "graph"; graph: IdentityGraph }
   | { type: "clusters"; clusters: AvatarCluster[] }
   | { type: "progress"; progress: ScanProgress }
@@ -355,4 +374,37 @@ export interface SavedCase {
   summary: ScanSummary;
   foundRows: LedgerRow[];
   graph?: IdentityGraph;
+}
+
+export interface FoundSnapshot {
+  site: string;
+  url: string;
+  status: LedgerStatus;
+}
+
+export interface WatchRecord {
+  id: string;
+  query: string;
+  mode: DetectedKind;
+  intervalMs: number;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  nextRunAt: string;
+  lastScanId?: string;
+  lastFound: FoundSnapshot[];
+  enabled: boolean;
+  lastError?: string;
+}
+
+export interface WatchAlert {
+  id: string;
+  watchId: string;
+  query: string;
+  mode: DetectedKind;
+  createdAt: string;
+  newFounds: FoundSnapshot[];
+  goneFounds: FoundSnapshot[];
+  read: boolean;
+  webhookDelivered?: boolean;
 }

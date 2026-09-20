@@ -13,6 +13,7 @@ import type {
 } from "../shared/types.ts";
 import {
   normalizeQuery,
+  preflightCrawl,
   preflightHandle,
   preflightHost,
   preflightMail,
@@ -22,6 +23,7 @@ import {
 import { runHandleScan } from "./handle.ts";
 import { buildMailDossier, hasMailExchanger, mailScanSiteCount, runMailScan } from "./mail.ts";
 import { persistCompletedScan } from "./cases.ts";
+import { crawlLedgerBudget, runCrawlScan } from "./crawl.ts";
 import { HOST_LEDGER_COUNT, runHostScan } from "./host.ts";
 import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
 import { hashFoundAvatars } from "./phash.ts";
@@ -157,6 +159,8 @@ export async function startScan(input: {
   /** When true (default), cancel any running scan so this one can start. */
   replace?: boolean;
   profile?: ScanProfile;
+  persist?: boolean;
+  source?: "user" | "watch";
 }): Promise<ScanSummary> {
   const replace = input.replace !== false;
   if (replace && runningScanCount() >= maxConcurrentScans()) {
@@ -179,6 +183,8 @@ export async function startScan(input: {
     preflight = preflightHost(normalized);
   } else if (kind === "phone") {
     preflight = preflightPhone(normalized);
+  } else if (kind === "crawl") {
+    preflight = preflightCrawl(normalized);
   }
 
   const fullHandle = sitesForScan(includeNsfw, { profile: "full" }).length;
@@ -189,7 +195,9 @@ export async function startScan(input: {
         ? mailScanSiteCount(profile)
         : kind === "phone"
           ? PHONE_LEDGER_COUNT
-          : HOST_LEDGER_COUNT;
+          : kind === "crawl"
+            ? crawlLedgerBudget(profile)
+            : HOST_LEDGER_COUNT;
 
   const profileNote =
     kind === "handle"
@@ -200,7 +208,9 @@ export async function startScan(input: {
         ? profile === "lean"
           ? `Lean mail: high-signal oracles first; quarantined and chronically blocked oracles skipped (${siteCount} checks).`
           : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe).`
-        : undefined;
+        : kind === "crawl"
+          ? `Bounded same-origin crawl (max pages from ${profile} / power). Private and loopback hosts are blocked.`
+          : undefined;
 
   const id = randomUUID();
   const summary: ScanSummary = {
@@ -216,6 +226,7 @@ export async function startScan(input: {
     siteCount,
     profile,
     profileNote,
+    source: input.source ?? "user",
   };
   const stored: StoredScan = { summary, rows: [], listeners: new Set(), pool: null, lastProgressAt: Date.now(), doneEmitted: false };
   scans.set(id, stored);
@@ -226,12 +237,18 @@ export async function startScan(input: {
   }
 
   queueMicrotask(() => {
-    void execute(stored, workers, perHost, profile);
+    void execute(stored, workers, perHost, profile, input.persist !== false);
   });
   return summary;
 }
 
-async function execute(stored: StoredScan, workers: number, perHost: number, profile: ScanProfile): Promise<void> {
+async function execute(
+  stored: StoredScan,
+  workers: number,
+  perHost: number,
+  profile: ScanProfile,
+  persist: boolean,
+): Promise<void> {
   let pending: LedgerRow[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   const flushRows = () => {
@@ -437,6 +454,20 @@ async function execute(stored: StoredScan, workers: number, perHost: number, pro
           emit(stored, { type: "dossier", dossier: d });
         },
       });
+    } else if (stored.summary.mode === "crawl") {
+      await runCrawlScan(stored.summary.id, stored.summary.query, {
+        workers,
+        perHost,
+        profile,
+        onRow,
+        onPool,
+        shouldAbort,
+        onDossier: (d) => {
+          stored.summary.dossier = d;
+          stored.summary.progress.total = Math.max(stored.summary.progress.total, d.pages + 8);
+          emit(stored, { type: "dossier", dossier: d });
+        },
+      });
     } else {
       await runHostScan(stored.summary.id, stored.summary.query, {
         onRow,
@@ -474,7 +505,7 @@ async function execute(stored: StoredScan, workers: number, perHost: number, pro
     if (stored.summary.status === "running") stored.summary.status = "done";
     if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
     stored.doneEmitted = true;
-    if (stored.summary.status === "done") {
+    if (stored.summary.status === "done" && persist && stored.summary.source !== "watch") {
       try {
         persistCompletedScan(stored.summary, stored.rows, stored.summary.graph);
       } catch {
@@ -517,6 +548,33 @@ export function startStaleScanWatchdog(): void {
 // Start watchdog when this module loads in the server process.
 startStaleScanWatchdog();
 
+
+export function waitForScan(id: string, timeoutMs = 15 * 60 * 1000): Promise<{ summary: ScanSummary; rows: LedgerRow[] }> {
+  return new Promise((resolve, reject) => {
+    const stored = scans.get(id);
+    if (!stored) {
+      reject(new Error("scan not found"));
+      return;
+    }
+    if (stored.summary.status !== "running") {
+      resolve({ summary: stored.summary, rows: stored.rows });
+      return;
+    }
+    let unsub: () => void = () => undefined;
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error("scan wait timed out"));
+    }, timeoutMs);
+    unsub = subscribe(id, (event) => {
+      if (event.type === "done") {
+        clearTimeout(timer);
+        unsub();
+        const cur = scans.get(id);
+        resolve({ summary: cur?.summary ?? event.scan, rows: cur?.rows ?? stored.rows });
+      }
+    });
+  });
+}
 
 export function compareStored(aId: string, bId: string) {
   const a = scans.get(aId);

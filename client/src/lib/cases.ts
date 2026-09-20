@@ -1,5 +1,5 @@
 import { compareScans } from "@shared/compare";
-import { exportJson, exportMarkdown } from "@shared/exports";
+import { exportExecutiveHtml, exportJson, exportMarkdown } from "@shared/exports";
 import type { IdentityGraph, LedgerRow, SavedCase, ScanSummary } from "@shared/types";
 
 const DB = "umbra-cases";
@@ -126,6 +126,54 @@ export async function deleteLocalCase(id: string): Promise<void> {
   lsSave(all);
 }
 
+export type CasesPersist = "volume" | "local";
+
+export async function loadCases(): Promise<{ persist: CasesPersist; cases: SavedCase[] }> {
+  try {
+    const res = await fetch("/api/cases");
+    if (res.ok) {
+      const data = (await res.json()) as { persist?: string; cases?: SavedCase[] };
+      if (data.persist === "volume") {
+        return { persist: "volume", cases: Array.isArray(data.cases) ? data.cases : [] };
+      }
+    }
+  } catch {
+    /* IndexedDB fallback */
+  }
+  return { persist: "local", cases: await listLocalCases() };
+}
+
+export async function saveCaseHybrid(
+  rec: SavedCase,
+  persist: CasesPersist,
+  scanId?: string,
+): Promise<SavedCase> {
+  if (persist === "volume") {
+    try {
+      const res = await fetch("/api/cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(scanId ? { scanId } : { case: rec }),
+      });
+      if (res.ok) return (await res.json()) as SavedCase;
+    } catch {
+      /* fall through */
+    }
+  }
+  return saveLocalCase(rec);
+}
+
+export async function deleteCaseHybrid(id: string, persist: CasesPersist): Promise<void> {
+  if (persist === "volume") {
+    try {
+      await fetch(`/api/cases/${id}`, { method: "DELETE" });
+    } catch {
+      /* still drop local */
+    }
+  }
+  await deleteLocalCase(id);
+}
+
 export function downloadText(filename: string, body: string, type: string): void {
   const blob = new Blob([body], { type });
   const url = URL.createObjectURL(blob);
@@ -136,13 +184,28 @@ export function downloadText(filename: string, body: string, type: string): void
   URL.revokeObjectURL(url);
 }
 
-export function exportLocalCase(rec: SavedCase, format: "json" | "md"): void {
+export function exportLocalCase(rec: SavedCase, format: "json" | "md" | "html"): void {
   const base = `umbra-case-${rec.mode}-${rec.query.replace(/[^\w.@+-]+/g, "_")}`;
+  if (format === "html") {
+    downloadText(`${base}.html`, exportExecutiveHtml(rec.summary, rec.foundRows, { caseSavedAt: rec.savedAt }), "text/html");
+    return;
+  }
   if (format === "md") {
     downloadText(`${base}.md`, exportMarkdown(rec.summary, rec.foundRows), "text/markdown");
     return;
   }
   downloadText(`${base}.json`, exportJson(rec.summary, rec.foundRows), "application/json");
+}
+
+export function exportCaseHybrid(rec: SavedCase, format: "json" | "md" | "html", persist: CasesPersist): void {
+  if (persist === "volume") {
+    const a = document.createElement("a");
+    a.href = `/api/cases/${encodeURIComponent(rec.id)}/export?format=${format}`;
+    a.download = "";
+    a.click();
+    return;
+  }
+  exportLocalCase(rec, format);
 }
 
 export function compareLocalCases(a: SavedCase, b: SavedCase) {
