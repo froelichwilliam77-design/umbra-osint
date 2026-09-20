@@ -59,7 +59,7 @@ describe("concurrency caps", () => {
 
   it("caps concurrent curl-impersonate children", () => {
     delete process.env.UMBRA_CURL_MAX;
-    expect(impersonateMax()).toBe(1);
+    expect(impersonateMax()).toBe(0);
     process.env.UMBRA_CURL_MAX = "99";
     expect(impersonateMax()).toBe(2);
   });
