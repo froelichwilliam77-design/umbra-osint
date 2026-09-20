@@ -570,6 +570,33 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
       waf: false,
     };
   }
+  if (input.status >= 500) {
+    return {
+      status: "error",
+      reason: `Upstream HTTP ${input.status}.`,
+      existHit,
+      missHit,
+      waf: false,
+    };
+  }
+  if (input.status === 406 || input.status === 999) {
+    return {
+      status: "blocked",
+      reason: `HTTP ${input.status} — treated as blocked, not a miss.`,
+      existHit: false,
+      missHit: false,
+      waf: true,
+    };
+  }
+  if (input.status >= 300 && input.status < 400) {
+    return {
+      status: "miss",
+      reason: `HTTP ${input.status} redirect is not a /${input.account ?? "account"} profile.`,
+      existHit: false,
+      missHit: true,
+      waf: false,
+    };
+  }
   return {
     status: "escalate",
     reason: `Neither exist nor missing conditions matched (HTTP ${input.status}).`,

@@ -233,9 +233,18 @@ export function recoverOracleVerdict(res: HttpResponse): OracleVerdict | null {
 
   const redirected = redirectHint(res);
   if (redirected) return redirected;
+  if (res.status >= 300 && res.status < 400) {
+    return { status: "miss", reason: `HTTP ${res.status} redirect without a taken-email signal.` };
+  }
 
   if (res.status === 404 || res.status === 410) {
     return { status: "miss", reason: `HTTP ${res.status} — oracle reports no account.` };
+  }
+  if (res.status === 405 || res.status === 501) {
+    return { status: "blocked", reason: `HTTP ${res.status} method not allowed — endpoint not usable as a silent oracle.` };
+  }
+  if (res.status === 412 || res.status === 418) {
+    return { status: "blocked", reason: `HTTP ${res.status} — treated as blocked (CSRF/bot), not a miss.` };
   }
   if (res.status === 204 || (res.status === 200 && !res.body.trim())) {
     return { status: "miss", reason: "Empty success body — oracle did not report the email as taken." };

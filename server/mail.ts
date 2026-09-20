@@ -7,6 +7,7 @@ import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { parseDmarc, parseSpf, lookupBimi, lookupDkim, lookupRdap } from "./host.ts";
 import { fetchPublic, jitter } from "./http.ts";
 import { finalizeOracleVerdict } from "./mail-oracle-recover.ts";
+import { handlers } from "./mail-oracles.ts";
 import { gravatarProfile, mailOpenLinks, mailPivots } from "./mail-util.ts";
 import { loadSchema, type OracleSpec } from "./schema.ts";
 
@@ -217,20 +218,20 @@ export async function runMailScan(
           );
           return;
         }
-        const fn = handlers[spec.handler];
-        if (!fn) {
-          opts.onRow(
-            rowFromVerdict(
-              scanId,
-              email,
-              spec,
-              { status: "error", reason: `No handler implemented for ${spec.handler}.` },
-              { url: "", method: "GET" },
-            ),
-          );
-          return;
-        }
         try {
+          const fn = handlers[spec.handler];
+          if (!fn) {
+            opts.onRow(
+              rowFromVerdict(
+                scanId,
+                email,
+                spec,
+                { status: "error", reason: `No handler implemented for ${spec.handler}.` },
+                { url: "", method: "GET" },
+              ),
+            );
+            return;
+          }
           const { verdict, extras } = await fn(email);
           const recovered = finalizeOracleVerdict(
             {

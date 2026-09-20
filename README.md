@@ -48,8 +48,8 @@ Live console screenshots:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across **1003** sites (963 clearnet). This upgrade local run: **193 found** / 461 miss / 178 blocked / 105 escalate on 963 clearnet (v1.1.0: 157 found / 326 miss / 140 blocked / 62 escalate on 699). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **1-click pivots** to handle `press` and host `github.com` + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: MX + SPF/DMARC + DKIM + M365 Managed + GitHub / Discord / Substack / OpenAI **found**; **29 miss** / **29 blocked** (403/429/CAPTCHA — never miss). v1.2.0 shipped **53** oracles. HIBP stays off unless `HIBP_API_KEY` is set.
+2. `octocat` in Auto/Handle — classified hits across **1001** sites (961 clearnet). This upgrade local run: **197 found** / 503 miss / 170 blocked / **40 escalate** on 961 clearnet (v1.3.0: 193 found / 461 miss / 178 blocked / 105 escalate on 963). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **1-click pivots** to handle `press` and host `github.com` + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: **13 found** / **98 miss** / **44 blocked** / **9 escalate** (v1.3.0: 9 found / 29 miss / 29 blocked / **98 escalate**). Found includes MX, SPF, DMARC, DKIM, M365 Managed, GitHub, GitLab, Discord/OpenAI/Substack when the oracle is not CAPTCHA-gated. HIBP stays off unless `HIBP_API_KEY` is set.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type, optional carrier.
 6. **Save case**, run a second query, **Compare with** the saved run. Export Markdown / JSON / JSONL / CSV / HTML.

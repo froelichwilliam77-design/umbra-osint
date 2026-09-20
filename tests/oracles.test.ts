@@ -232,6 +232,12 @@ describe("oracle registry expansion", () => {
     expect(loadSchema().oracles.filter((o) => o.quarantine).length).toBeGreaterThanOrEqual(5);
   });
 
+  it("mail scan module imports the handler registry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../server/mail.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/import \{ handlers \} from "\.\/mail-oracles\.ts"/);
+  });
+
   it("does not include password-reset handlers", () => {
     const src = Object.keys(handlers).join(" ");
     expect(src).not.toMatch(/forgot|resetPassword|restore_password/i);

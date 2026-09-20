@@ -143,6 +143,24 @@ describe("classifyResponse", () => {
     expect(r.status).toBe("found");
   });
 
+  it("treats leftover 3xx as miss and 406/999 as blocked", () => {
+    const redir = classifyResponse(spec, {
+      status: 301,
+      body: "",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+      location: "https://elsewhere.example/foo",
+    });
+    const blocked = classifyResponse(spec, {
+      status: 406,
+      body: "not acceptable",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+    });
+    expect(redir.status).toBe("miss");
+    expect(blocked.status).toBe("blocked");
+  });
+
   it("treats HTTP 404 as miss even when missing-string drifted", () => {
     const r = classifyResponse(spec, {
       status: 404,

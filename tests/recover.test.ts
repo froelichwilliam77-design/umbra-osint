@@ -50,6 +50,9 @@ describe("oracle recovery (escalate → found/miss/blocked)", () => {
     expect(recoverOracleVerdict(http(404, "nope"))?.status).toBe("miss");
     expect(recoverOracleVerdict(http(409, "conflict"))?.status).toBe("found");
     expect(recoverOracleVerdict(http(419, "csrf token mismatch"))?.status).toBe("blocked");
+    expect(recoverOracleVerdict(http(302, "", { location: "https://example.com/register" }))?.status).toBe("miss");
+    expect(recoverOracleVerdict(http(405, "method not allowed"))?.status).toBe("blocked");
+    expect(recoverOracleVerdict(http(418, "teapot"))?.status).toBe("blocked");
   });
 
   it("classifyOracleBody uses recovery instead of unclassified escalate", () => {
