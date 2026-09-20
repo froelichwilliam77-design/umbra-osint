@@ -3,7 +3,7 @@ import type { CountryCode } from "libphonenumber-js/max";
 import type { LedgerRow, PhoneDossier } from "../shared/types.ts";
 import { fetchPublic } from "./http.ts";
 
-export const PHONE_LEDGER_COUNT = 4;
+export const PHONE_LEDGER_COUNT = 5;
 
 /** Public NANP NPA → region labels (numbering-plan data, not a live carrier dump). */
 const NANP_NPA: Record<string, string> = {
@@ -430,6 +430,73 @@ const COUNTRY_NAMES: Record<string, string> = {
   GR: "Greece",
 };
 
+function timezonesFor(country?: string, nanp?: string): string[] {
+  if (country === "US" || country === "CA") {
+    const n = (nanp ?? "").toLowerCase();
+    if (/hawaii/.test(n)) return ["Pacific/Honolulu"];
+    if (/alaska/.test(n)) return ["America/Anchorage"];
+    if (/los angeles|san francisco|seattle|san jose|san diego|portland, or|california|washington|oregon|nevada|arizona/.test(n)) {
+      return n.includes("arizona") ? ["America/Phoenix"] : ["America/Los_Angeles"];
+    }
+    if (/denver|colorado|utah|montana|wyoming|new mexico|idaho/.test(n)) return ["America/Denver"];
+    if (/chicago|dallas|houston|austin|central|illinois|texas|minnesota|wisconsin|missouri/.test(n)) return ["America/Chicago"];
+    if (country === "CA") {
+      if (/vancouver|british columbia/.test(n)) return ["America/Vancouver"];
+      if (/toronto|ontario|ottawa/.test(n)) return ["America/Toronto"];
+      if (/montreal|quebec/.test(n)) return ["America/Toronto"];
+      return ["America/Toronto"];
+    }
+    return ["America/New_York"];
+  }
+  const map: Record<string, string[]> = {
+    GB: ["Europe/London"],
+    IE: ["Europe/Dublin"],
+    FR: ["Europe/Paris"],
+    DE: ["Europe/Berlin"],
+    NL: ["Europe/Amsterdam"],
+    ES: ["Europe/Madrid"],
+    IT: ["Europe/Rome"],
+    SE: ["Europe/Stockholm"],
+    NO: ["Europe/Oslo"],
+    FI: ["Europe/Helsinki"],
+    AU: ["Australia/Sydney"],
+    NZ: ["Pacific/Auckland"],
+    JP: ["Asia/Tokyo"],
+    IN: ["Asia/Kolkata"],
+    BR: ["America/Sao_Paulo"],
+    MX: ["America/Mexico_City"],
+    SG: ["Asia/Singapore"],
+    AE: ["Asia/Dubai"],
+    ZA: ["Africa/Johannesburg"],
+    KR: ["Asia/Seoul"],
+    CN: ["Asia/Shanghai"],
+    CH: ["Europe/Zurich"],
+    AT: ["Europe/Vienna"],
+    BE: ["Europe/Brussels"],
+    PT: ["Europe/Lisbon"],
+    DK: ["Europe/Copenhagen"],
+    PL: ["Europe/Warsaw"],
+    IL: ["Asia/Jerusalem"],
+  };
+  return country && map[country] ? map[country] : [];
+}
+
+/** Public search / profile pivots only — never SMS or calls. */
+export function phoneOpenLinks(e164: string, country?: string): { label: string; url: string }[] {
+  const q = encodeURIComponent(`"${e164}"`);
+  const digits = e164.replace(/\D/g, "");
+  const cc = (country || "us").toLowerCase();
+  return [
+    { label: "Google", url: `https://www.google.com/search?q=${q}` },
+    { label: "DuckDuckGo", url: `https://duckduckgo.com/?q=${q}` },
+    { label: "Truecaller", url: `https://www.truecaller.com/search/${cc}/${digits}` },
+    { label: "Whitepages", url: `https://www.whitepages.com/phone/${digits}` },
+    { label: "NumLookup", url: `https://www.numlookup.com/${digits}` },
+    { label: "SpyDialer", url: `https://www.spydialer.com/default.aspx?n=${digits}` },
+    { label: "WhatsApp", url: `https://wa.me/${digits}` },
+  ];
+}
+
 export function defaultPhoneRegion(): CountryCode {
   const raw = (process.env.UMBRA_PHONE_REGION ?? "US").trim().toUpperCase();
   const countries = getCountries();
@@ -567,6 +634,8 @@ export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
   if (e164) pivots.push(e164);
   if (parsed?.nationalNumber) pivots.push(parsed.nationalNumber);
   if (country) pivots.push(country.toLowerCase());
+  const timezones = timezonesFor(country, nanp);
+  const openLinks = e164 ? phoneOpenLinks(e164, country) : [];
 
   return {
     raw: raw.trim(),
@@ -582,9 +651,10 @@ export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
     type: typeHint,
     regionHint,
     carrierHint: carrierFromLookup || (typeHint ? `${typeHint} (libphonenumber type; live carrier needs Twilio/Numverify key)` : undefined),
-    timezones: [],
+    timezones,
     pivots: [...new Set(pivots)],
     lookups,
+    openLinks,
   };
 }
 
@@ -672,6 +742,18 @@ export async function runPhoneScan(
     url: e164,
     method: "LOOKUP",
   });
+  opts.onRow({
+    id: `${scanId}:tz`,
+    scanId,
+    mode: "phone",
+    target: e164,
+    site: "Timezones",
+    category: "phone",
+    status: dossier.timezones.length ? "found" : "miss",
+    reason: dossier.timezones.length ? dossier.timezones.join(", ") : "No timezone hint for this numbering plan.",
+    url: e164,
+    method: "LIBPHONENUMBER",
+  });
   for (const lookup of dossier.lookups) {
     opts.onRow({
       id: `${scanId}:lookup:${lookup.source}`,
@@ -686,25 +768,20 @@ export async function runPhoneScan(
       method: "GET",
     });
   }
-  if (dossier.lookups.length === 0) {
-    opts.onRow({
-      id: `${scanId}:public-links`,
-      scanId,
-      mode: "phone",
-      target: e164,
-      site: "Public search links",
-      category: "phone",
-      status: "found",
-      reason: "Authorized public search URLs only — Umbra does not scrape paid walls or send SMS.",
-      url: `https://duckduckgo.com/?q=${encodeURIComponent(`"${e164}"`)}`,
-      method: "LINK",
-      metadata: {
-        extra: {
-          duckduckgo: `https://duckduckgo.com/?q=${encodeURIComponent(`"${e164}"`)}`,
-          e164,
-        },
-      },
-    });
-  }
+  opts.onRow({
+    id: `${scanId}:public-links`,
+    scanId,
+    mode: "phone",
+    target: e164,
+    site: "Public search links",
+    category: "phone",
+    status: "found",
+    reason: "Authorized public search URLs only — Umbra does not scrape paid walls or send SMS.",
+    url: dossier.openLinks[0]?.url ?? `https://duckduckgo.com/?q=${encodeURIComponent(`"${e164}"`)}`,
+    method: "LINK",
+    metadata: {
+      extra: Object.fromEntries(dossier.openLinks.map((l) => [l.label, l.url])),
+    },
+  });
   void getCountryCallingCode;
 }

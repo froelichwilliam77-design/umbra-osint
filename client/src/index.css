@@ -30,6 +30,12 @@ body {
   }
 }
 
+@media (max-width: 640px) {
+  .ledger-row {
+    font-size: 0.95rem;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

@@ -30,6 +30,8 @@ describe("schema integrity", () => {
     expect(lean.length).toBeGreaterThanOrEqual(50);
     expect(full.length).toBeGreaterThan(lean.length);
     expect(schemaStats().leanSites).toBe(lean.length);
+    expect(schemaStats().oraclesLean ?? 0).toBeGreaterThan(40);
+    expect(schemaStats().oraclesLean ?? 0).toBeLessThan(schemaStats().oracles);
     const names = lean.map((s) => s.name.toLowerCase());
     expect(names.some((n) => n.includes("github"))).toBe(true);
   });

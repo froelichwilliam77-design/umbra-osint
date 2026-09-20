@@ -7,6 +7,7 @@ import {
   inferDefaultProfile,
   ledgerWindow,
   parseScanProfile,
+  progressPercent,
   rssPressureOf,
 } from "../shared/scan-limits.ts";
 import { splitFastTier, type WmnSite } from "../server/schema.ts";
@@ -61,6 +62,13 @@ describe("scan profile + SSE batching", () => {
     expect(rssPressureOf(449, 450, 600)).toBe("ok");
     expect(rssPressureOf(450, 450, 600)).toBe("soft");
     expect(rssPressureOf(600, 450, 600)).toBe("hard");
+  });
+
+  it("reports a clear progress percent", () => {
+    expect(progressPercent(0, 0)).toBe(0);
+    expect(progressPercent(50, 100)).toBe(50);
+    expect(progressPercent(3, 9)).toBe(33);
+    expect(progressPercent(9, 9)).toBe(100);
   });
 
   it("virtualizes the ledger to ~40 rendered rows", () => {

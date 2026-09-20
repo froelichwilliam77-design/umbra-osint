@@ -20,7 +20,8 @@ import {
   resolveMode,
 } from "./detect.ts";
 import { runHandleScan } from "./handle.ts";
-import { buildMailDossier, hasMailExchanger, runMailScan } from "./mail.ts";
+import { buildMailDossier, hasMailExchanger, mailScanSiteCount, runMailScan } from "./mail.ts";
+import { persistCompletedScan } from "./cases.ts";
 import { HOST_LEDGER_COUNT, runHostScan } from "./host.ts";
 import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
 import { hashFoundAvatars } from "./phash.ts";
@@ -185,7 +186,7 @@ export async function startScan(input: {
     kind === "handle"
       ? sitesForScan(includeNsfw, { profile }).length
       : kind === "mail"
-        ? schema.oracles.filter((o) => o.handler !== "hibp" || Boolean(process.env.HIBP_API_KEY?.trim())).length + 8
+        ? mailScanSiteCount(profile)
         : kind === "phone"
           ? PHONE_LEDGER_COUNT
           : HOST_LEDGER_COUNT;
@@ -195,8 +196,11 @@ export async function startScan(input: {
       ? profile === "lean"
         ? `Lean profile: ${siteCount} curated + high-signal sites (not the full ${fullHandle}-site map). Choose Full for the complete scan.`
         : `Full profile: ${siteCount} sites. Fast tier runs first, then the rest.`
-      : undefined;
-  if (profileNote) preflight.notes = [...preflight.notes, profileNote];
+      : kind === "mail"
+        ? profile === "lean"
+          ? `Lean mail: high-signal oracles first; quarantined and chronically blocked oracles skipped (${siteCount} checks).`
+          : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe).`
+        : undefined;
 
   const id = randomUUID();
   const summary: ScanSummary = {
@@ -246,7 +250,8 @@ async function execute(stored: StoredScan, workers: number, perHost: number, pro
     bump(stored.summary.progress, row.status);
     touchProgress(stored);
     pending.push(row);
-    if (!timer) timer = setTimeout(flushRows, SSE_FLUSH_MS);
+    if (row.status === "found" || pending.length >= 8) flushRows();
+    else if (!timer) timer = setTimeout(flushRows, SSE_FLUSH_MS);
   };
   const onPool = (pool: HostPool) => {
     stored.pool = pool;
@@ -394,8 +399,36 @@ async function execute(stored: StoredScan, workers: number, perHost: number, pro
             }
           : undefined,
       });
+      if (dossier.hibp?.enabled) {
+        const names = dossier.hibp.breaches.slice(0, 8).map((b) => b.title || b.name);
+        onRow({
+          id: `${stored.summary.id}:hibp`,
+          scanId: stored.summary.id,
+          mode: "mail",
+          target: stored.summary.query,
+          site: "Have I Been Pwned",
+          category: "identity",
+          status: dossier.hibp.breachCount ? "found" : dossier.hibp.skipped ? "blocked" : "miss",
+          reason: dossier.hibp.skipped
+            ? dossier.hibp.skipped
+            : dossier.hibp.breachCount
+              ? `${dossier.hibp.breachCount} breach record(s)${names.length ? `: ${names.join(", ")}` : ""}`
+              : "HIBP reports no breaches for this address.",
+          url: `https://haveibeenpwned.com/account/${encodeURIComponent(stored.summary.query)}`,
+          method: "GET",
+          metadata: {
+            extra: { breaches: dossier.hibp.breachCount },
+          },
+        });
+      }
       stored.summary.progress.total = stored.summary.siteCount;
-      await runMailScan(stored.summary.id, stored.summary.query, { workers, perHost, onRow, onPool });
+      await runMailScan(stored.summary.id, stored.summary.query, {
+        workers,
+        perHost,
+        onRow,
+        onPool,
+        profile,
+      });
     } else if (stored.summary.mode === "phone") {
       await runPhoneScan(stored.summary.id, stored.summary.query, {
         onRow,
@@ -441,6 +474,13 @@ async function execute(stored: StoredScan, workers: number, perHost: number, pro
     if (stored.summary.status === "running") stored.summary.status = "done";
     if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
     stored.doneEmitted = true;
+    if (stored.summary.status === "done") {
+      try {
+        persistCompletedScan(stored.summary, stored.rows, stored.summary.graph);
+      } catch {
+        /* optional persistence */
+      }
+    }
     emit(stored, { type: "done", scan: stored.summary });
   }
 }

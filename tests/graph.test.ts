@@ -54,12 +54,15 @@ describe("identity graph + compare", () => {
           dkim: [],
           pivots: ["press"],
           localPartAnalysis: { localPart: "press", base: "press", patterns: ["role"], possibleNames: [] },
+          openLinks: [],
+          hibp: { enabled: true, breachCount: 1, breaches: [{ name: "Adobe", title: "Adobe" }] },
         },
       }),
       rows: [row("GitHub")],
     });
     expect(graph.nodes.some((n) => n.kind === "handle" && n.label === "press" && n.pivot?.mode === "handle")).toBe(true);
     expect(graph.nodes.some((n) => n.kind === "host" && n.label === "github.com" && n.pivot?.mode === "host")).toBe(true);
+    expect(graph.nodes.some((n) => n.kind === "oracle" && /HIBP/.test(n.label))).toBe(true);
   });
 
   it("compares found-only site sets", () => {
