@@ -284,6 +284,13 @@ if (existsSync(clientDir)) {
   });
 }
 
-startWatchScheduler();
+try {
+  startWatchScheduler();
+} catch (err) {
+  app.log.warn({ err }, "watch scheduler failed to start; continuing without watches");
+}
 await app.listen({ port: PORT, host: HOST });
-app.log.info(`Umbra listening on http://${HOST}:${PORT}`);
+app.log.info(
+  { cases: casesPersistMode(), watches: watchesPersistMode() },
+  `Umbra listening on http://${HOST}:${PORT}`,
+);

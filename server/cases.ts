@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { IdentityGraph, LedgerRow, SavedCase, ScanSummary } from "../shared/types.ts";
 import { compareScans } from "../shared/compare.ts";
@@ -20,12 +20,24 @@ function canWrite(dir: string): boolean {
   }
 }
 
+function dataMount(): string {
+  return process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim() || "/data";
+}
+
+/** Writable JSON dir, or null. Never throws — missing /data falls back to memory. */
 export function casesDir(): string | null {
-  const env = process.env.UMBRA_CASES_DIR?.trim();
-  if (env) return canWrite(env) ? env : null;
-  if (existsSync("/data") && canWrite("/data/cases")) return "/data/cases";
-  if (existsSync("/data") && canWrite("/data/umbra-cases")) return "/data/umbra-cases";
-  return null;
+  try {
+    const env = process.env.UMBRA_CASES_DIR?.trim();
+    if (env) return canWrite(env) ? env : null;
+    const mount = dataMount();
+    const nested = join(mount, "cases");
+    if (canWrite(nested)) return nested;
+    const compat = join(mount, "umbra-cases");
+    if (canWrite(compat)) return compat;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function casesPersistMode(): "volume" | "memory" {
