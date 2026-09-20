@@ -43,9 +43,9 @@ Live console screenshots from a local run:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). This upgrade: **738** handle sites (699 clearnet) and recovered JSON/404 matchers. Previous main: 726 sites / ~163 found on a local octocat run.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **53** silent oracles + **Pivot local-part as handle**. Expect MX + SPF/DMARC/DKIM + M365 tenant + GitHub taken + Gmail gxlu; 403/429 oracles stay **blocked**.
-4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA/TXT, SPF/DMARC/DKIM, parsed security.txt, HTTPS title/headers, TLS cert SAN + days remaining.
+2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). This upgrade: **738** handle sites (699 clearnet). Local run: **157 found** / 326 miss / 140 blocked / 62 escalate on 699 clearnet (main README cited 163 found on 686, with fewer 404s classified as miss). GitHub is found with matcher recovery + metadata.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **53** silent oracles + **Pivot local-part as handle**. Local run: MX + SPF/DMARC + DKIM (`google, selector1, k1, s1, s2`) + M365 Managed + GitHub taken; 403/429 oracles stay **blocked**.
+4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA/TXT, SPF/DMARC/DKIM, parsed security.txt (HackerOne), HTTPS title/headers, TLS cert SAN + days remaining. Local run: **13 found** / 2 miss (AAAA, BIMI) on 15 ledger rows.
 5. Export the ledger as Markdown / JSON / JSONL / CSV / HTML.
 
 ## Railway (public HTTPS)

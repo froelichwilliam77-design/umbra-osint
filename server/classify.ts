@@ -45,6 +45,11 @@ const SOFT_404 = [
   "sorry, this page isn't available",
   "this page isn't available",
   "this page is not available",
+  "esta página no está disponible",
+  "esta pagina no esta disponible",
+  "página no está disponible",
+  "pagina no encontrada",
+  "page isn't available",
   "the page you were looking for doesn't exist",
   "the page you requested was not found",
   "we couldn't find that",
@@ -60,6 +65,8 @@ const SOFT_404 = [
   "error 404",
   "nothing to see here",
   "no users found",
+  "item not available",
+  "no longer available",
 ];
 
 function headerMap(headers: Record<string, string>): Record<string, string> {
@@ -119,7 +126,15 @@ export function locationLooksLikeProfile(requestedUrl: string, dest: string, acc
     const acc = account.toLowerCase();
     const path = url.pathname.toLowerCase();
     const search = url.search.toLowerCase();
-    if (path.includes(`/${acc}`) || path.endsWith(`/${acc}`) || path.includes(`/@${acc}`) || search.includes(acc)) {
+    const host = url.hostname.toLowerCase();
+    if (
+      path.includes(`/${acc}`) ||
+      path.includes(`/~${acc}`) ||
+      path.includes(`/@${acc}`) ||
+      path.endsWith(`/${acc}`) ||
+      search.includes(acc) ||
+      host.startsWith(`${acc}.`)
+    ) {
       return url.hostname === req.hostname || url.hostname.endsWith(`.${req.hostname}`) || req.hostname.endsWith(`.${url.hostname}`);
     }
     return false;
@@ -232,6 +247,26 @@ export function jsonAccountEvidence(body: string, account?: string): boolean {
   }
 }
 
+export function htmlAccountEvidence(body: string, account?: string): boolean {
+  if (!account) return false;
+  const acc = account.toLowerCase();
+  const slice = body.slice(0, 40_000);
+  const lower = slice.toLowerCase();
+  if (isSoft404(slice)) return false;
+  const title = (slice.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] ?? "").toLowerCase();
+  const ogTitle = (slice.match(/property=["']og:title["'][^>]*content=["']([^"']+)/i)?.[1]
+    ?? slice.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1]
+    ?? "").toLowerCase();
+  const word = new RegExp(`(?:^|[^a-z0-9])${acc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
+  if (title && word.test(title) && !/not found|error|unavailable|just a moment/.test(title)) return true;
+  if (ogTitle && word.test(ogTitle) && !/not found|error|unavailable/.test(ogTitle)) return true;
+  if (lower.includes(`"username":"${acc}"`) || lower.includes(`"username": "${acc}"`)) return true;
+  if (lower.includes(`"login":"${acc}"`) || lower.includes(`"handle":"${acc}"`)) return true;
+  if (lower.includes(`href="/~${acc}"`) || lower.includes(`href='/~${acc}'`)) return true;
+  if (new RegExp(`['"]username['"]\\s*=>\\s*['"]${acc}['"]`, "i").test(slice)) return true;
+  return false;
+}
+
 export function jsonEmptyCollection(body: string): boolean {
   const trimmed = body.trim();
   if (trimmed === "[]" || trimmed === "{}" || trimmed === "null") return true;
@@ -297,6 +332,15 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
     return {
       status: "found",
       reason: `JSON body names account "${input.account}" (matcher recovered).`,
+      existHit: true,
+      missHit: false,
+      waf: false,
+    };
+  }
+  if (htmlAccountEvidence(input.body, input.account) && input.status >= 200 && input.status < 400) {
+    return {
+      status: "found",
+      reason: `Profile page names account "${input.account}" (title/OG/username).`,
       existHit: true,
       missHit: false,
       waf: false,
@@ -412,13 +456,21 @@ export function handleAllowed(handle: string, regex?: string): { ok: boolean; re
 }
 
 export function looksLikeApiUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  return (
-    lower.includes("/api/") ||
-    lower.includes("/api?") ||
-    lower.endsWith(".json") ||
-    lower.includes(".json?") ||
-    lower.includes("format=json") ||
-    lower.includes("application/json")
-  );
+  try {
+    const u = new URL(url);
+    const lower = url.toLowerCase();
+    const host = u.hostname.toLowerCase();
+    return (
+      host.startsWith("api.") ||
+      host.includes(".api.") ||
+      lower.includes("/api/") ||
+      lower.includes("/api?") ||
+      lower.endsWith(".json") ||
+      lower.includes(".json?") ||
+      lower.includes("format=json")
+    );
+  } catch {
+    const lower = url.toLowerCase();
+    return lower.includes("/api/") || lower.endsWith(".json");
+  }
 }

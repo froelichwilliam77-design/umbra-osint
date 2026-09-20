@@ -137,7 +137,7 @@ export function analyzeLocalPart(localPart: string) {
     // flast: jsmith — too ambiguous to name, but flag the shape
     if (/^[a-z][a-z]{2,}$/i.test(stripped)) patterns.push("compact");
   }
-  if (/^[a-z]\.?[a-z]+$/i.test(stripped)) {
+  if (/^[a-z]\.[a-z]{2,}$/i.test(stripped)) {
     patterns.push("initial-last");
   }
   if (ROLE_LOCAL_PARTS.has(base.toLowerCase()) || ROLE_LOCAL_PARTS.has(stripped.toLowerCase())) {

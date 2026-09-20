@@ -152,6 +152,30 @@ describe("classifyResponse", () => {
     expect(r.reason.toLowerCase()).toMatch(/json/);
   });
 
+  it("recovers HTML profile titles that name the account", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: '"obsolete"', m_code: 404, m_string: "Not Found" },
+      {
+        status: 200,
+        body: '<html><head><title>octocat on Launchpad</title></head><a href="/~octocat">octocat</a>',
+        headers: {},
+        requestedUrl: "https://api.launchpad.net/1.0/~octocat",
+        account: "octocat",
+      },
+    );
+    expect(r.status).toBe("found");
+  });
+
+  it("blocks bot-check interstitials that are not 403", () => {
+    const r = classifyResponse(spec, {
+      status: 200,
+      body: "<title>Making sure you're not a bot!</title>",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+    });
+    expect(r.status).toBe("blocked");
+  });
+
   it("treats empty JSON collections on 200 as miss", () => {
     const r = classifyResponse(
       { e_code: 200, e_string: '"id":', m_code: 200, m_string: "nope" },
