@@ -202,6 +202,7 @@ export async function runMailScan(
     oracles.map((spec) =>
       pool.schedule(spec.id, async () => {
         await jitter(60, 240);
+        if (pool.isAborted) return;
         const fn = handlers[spec.handler];
         if (!fn) {
           opts.onRow(
@@ -232,5 +233,6 @@ export async function runMailScan(
       }),
     ),
   );
+  pool.throwIfAborted();
   void hostFromUrl;
 }

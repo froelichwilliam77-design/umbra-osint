@@ -296,23 +296,28 @@ export default function App() {
 
   if (!accepted) {
     return (
-      <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6">
-        <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Umbra</p>
-        <h1 className="mt-3 text-3xl font-medium">Authorized use only</h1>
-        <p className="mt-4 text-fog-300">{AUTHORIZED_USE}</p>
-        <p className="mt-3 text-sm text-fog-500">
-          Handle, mail, host, and phone modules query public endpoints. Private/loopback fetches are blocked. Silent
-          mail oracles never SMTP the subject. Phone mode never sends SMS.
-        </p>
-        <Button
-          className="mt-8 w-fit"
-          onClick={() => {
-            localStorage.setItem("umbra.ok", "1");
-            setAccepted(true);
-          }}
-        >
-          I am authorized — open the ledger
-        </Button>
+      <div
+        className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 text-fog-100"
+        style={{ background: "#07080c", color: "#e8e6e1" }}
+      >
+        <div className="rounded-2xl border border-ink-600 bg-ink-900 p-6 shadow-panel">
+          <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Umbra</p>
+          <h1 className="mt-3 text-3xl font-medium text-white">Authorized use only</h1>
+          <p className="mt-4 text-fog-100">{AUTHORIZED_USE}</p>
+          <p className="mt-3 text-sm text-fog-300">
+            Handle, mail, host, and phone modules query public endpoints. Private/loopback fetches are blocked. Silent
+            mail oracles never SMTP the subject. Phone mode never sends SMS.
+          </p>
+          <Button
+            className="mt-8 w-fit bg-accent text-white"
+            onClick={() => {
+              localStorage.setItem("umbra.ok", "1");
+              setAccepted(true);
+            }}
+          >
+            I am authorized — open the ledger
+          </Button>
+        </div>
       </div>
     );
   }

@@ -18,9 +18,16 @@ describe("TLS impersonation + Playwright flags", () => {
   });
 
   it("keeps Playwright off by default and only escalates GET challenge rows", () => {
-    expect(playwrightEnabled()).toBe(false);
-    expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "GET")).toBe(true);
-    expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "POST")).toBe(false);
-    expect(shouldEscalateBrowser("miss", "Missing match", "GET")).toBe(false);
+    const prev = process.env.UMBRA_PLAYWRIGHT;
+    delete process.env.UMBRA_PLAYWRIGHT;
+    try {
+      expect(playwrightEnabled()).toBe(false);
+      expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "GET")).toBe(true);
+      expect(shouldEscalateBrowser("blocked", "Cloudflare challenge body", "POST")).toBe(false);
+      expect(shouldEscalateBrowser("miss", "Missing match", "GET")).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.UMBRA_PLAYWRIGHT;
+      else process.env.UMBRA_PLAYWRIGHT = prev;
+    }
   });
 });

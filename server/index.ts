@@ -4,13 +4,11 @@ import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AUTHORIZED_USE } from "../shared/constants.ts";
 import type { ScanMode } from "../shared/types.ts";
-import { impersonateHealth } from "./curl-impersonate.ts";
 import { renderExport } from "./exports.ts";
-import { playwrightAvailable, playwrightEnabled, playwrightMax } from "./playwright-pool.ts";
+import { healthPayload } from "./health.ts";
 import { importWmnPayload, reloadSchema, schemaStats } from "./schema.ts";
-import { compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
+import { canStartScan, compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -20,25 +18,7 @@ const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });
 
-app.get("/api/health", async () => {
-  const tls = impersonateHealth();
-  return {
-    ok: true,
-    name: "umbra",
-    version: "1.2.0",
-    warning: AUTHORIZED_USE,
-    proxy: Boolean(process.env.UMBRA_PROXY),
-    hibp: Boolean(process.env.HIBP_API_KEY?.trim()),
-    playwright: {
-      enabled: playwrightEnabled(),
-      available: await playwrightAvailable(),
-      max: playwrightMax(),
-    },
-    pwa: true,
-    phone: true,
-    ...tls,
-  };
-});
+app.get("/api/health", async () => healthPayload());
 
 app.get("/api/schema", async () => schemaStats());
 
@@ -67,6 +47,8 @@ app.get("/api/scans/compare", async (req, reply) => {
 });
 
 app.post("/api/scans", async (req, reply) => {
+  const gate = canStartScan();
+  if (!gate.ok) return reply.code(gate.status).send({ error: gate.error });
   const body = (req.body ?? {}) as {
     query?: string;
     mode?: ScanMode;
@@ -142,11 +124,20 @@ app.get("/api/scans/:id/export", async (req, reply) => {
 
 const clientDir = join(root, "dist/client");
 if (existsSync(clientDir)) {
-  await app.register(fastifyStatic, { root: clientDir });
+  await app.register(fastifyStatic, {
+    root: clientDir,
+    setHeaders(res, filePath) {
+      const lower = filePath.replaceAll("\\", "/").toLowerCase();
+      if (lower.endsWith("index.html") || lower.endsWith("/sw.js") || lower.endsWith("sw.js")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      }
+    },
+  });
   app.setNotFoundHandler((req, reply) => {
     if (req.url.startsWith("/api/")) {
       return reply.code(404).send({ error: "not found" });
     }
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     return reply.sendFile("index.html");
   });
 }

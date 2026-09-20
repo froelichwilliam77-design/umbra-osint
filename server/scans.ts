@@ -24,6 +24,8 @@ import { HOST_LEDGER_COUNT, runHostScan } from "./host.ts";
 import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
 import { hashFoundAvatars } from "./phash.ts";
 import { buildIdentityGraph, compareScans } from "./graph.ts";
+import { clampPerHost, clampWorkers, maxConcurrentScans } from "./limits.ts";
+import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
 
 interface StoredScan {
@@ -71,8 +73,30 @@ export function subscribe(id: string, fn: (event: ScanEvent) => void): () => voi
   if (stored.summary.graph) fn({ type: "graph", graph: stored.summary.graph });
   if (stored.summary.avatarClusters?.length) fn({ type: "clusters", clusters: stored.summary.avatarClusters });
   fn({ type: "progress", progress: stored.summary.progress });
-  if (stored.summary.status === "done") fn({ type: "done", scan: stored.summary });
+  if (stored.summary.status === "done" || stored.summary.status === "cancelled") fn({ type: "done", scan: stored.summary });
   return () => stored.listeners.delete(fn);
+}
+
+export function runningScanCount(): number {
+  let n = 0;
+  for (const s of scans.values()) {
+    if (s.summary.status === "running") n += 1;
+  }
+  return n;
+}
+
+export function canStartScan(): { ok: true } | { ok: false; status: number; error: string } {
+  if (isHardMemoryPressure()) {
+    return { ok: false, status: 503, error: "memory pressure — retry shortly" };
+  }
+  if (runningScanCount() >= maxConcurrentScans()) {
+    return {
+      ok: false,
+      status: 429,
+      error: "A scan is already running. 1 GB hosts keep one scan in flight.",
+    };
+  }
+  return { ok: true };
 }
 
 export async function startScan(input: {
@@ -87,8 +111,8 @@ export async function startScan(input: {
   const normalized = normalizeQuery(input.query, kind);
   const schema = loadSchema();
   const includeNsfw = Boolean(input.includeNsfw);
-  const workers = Math.min(48, Math.max(4, input.workers ?? 24));
-  const perHost = Math.min(4, Math.max(1, input.perHost ?? 2));
+  const workers = clampWorkers(input.workers);
+  const perHost = clampPerHost(input.perHost);
 
   let preflight = preflightHandle(normalized, schema.disposable);
   if (kind === "mail") {
@@ -307,21 +331,29 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
       });
     }
     if (stored.summary.mode === "handle" || stored.summary.mode === "mail") {
-      const hashed = await hashFoundAvatars(stored.rows);
-      stored.summary.avatarClusters = hashed.clusters;
-      if (hashed.clusters.length) emit(stored, { type: "clusters", clusters: hashed.clusters });
+      if (stored.summary.status !== "cancelled") {
+        const hashed = await hashFoundAvatars(stored.rows);
+        stored.summary.avatarClusters = hashed.clusters;
+        if (hashed.clusters.length) emit(stored, { type: "clusters", clusters: hashed.clusters });
+      }
     }
-    stored.summary.graph = buildIdentityGraph({
-      summary: stored.summary,
-      rows: stored.rows,
-      clusters: stored.summary.avatarClusters,
-    });
-    emit(stored, { type: "graph", graph: stored.summary.graph });
+    if (stored.summary.status !== "cancelled") {
+      stored.summary.graph = buildIdentityGraph({
+        summary: stored.summary,
+        rows: stored.rows,
+        clusters: stored.summary.avatarClusters,
+      });
+      emit(stored, { type: "graph", graph: stored.summary.graph });
+    }
   } catch (err) {
+    if (err instanceof ScanAbortError) {
+      stored.summary.status = "cancelled";
+      stored.summary.abortReason = err.message;
+    }
     emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
     flushProgress();
-    stored.summary.status = "done";
+    if (stored.summary.status === "running") stored.summary.status = "done";
     stored.summary.finishedAt = new Date().toISOString();
     emit(stored, { type: "done", scan: stored.summary });
   }

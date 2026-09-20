@@ -237,9 +237,11 @@ export async function runHandleScan(
       pool.schedule(hostFromUrl(site.uri_check), async () => {
         const protectedHost = Boolean(site.protection?.length);
         await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
+        if (pool.isAborted) return;
         let row = await probeSite(scanId, handle, site);
         if (
           playwrightLeft > 0 &&
+          !pool.isAborted &&
           shouldEscalateBrowser(row.status, row.reason, row.method)
         ) {
           playwrightLeft -= 1;
@@ -288,4 +290,5 @@ export async function runHandleScan(
       }),
     ),
   );
+  pool.throwIfAborted();
 }

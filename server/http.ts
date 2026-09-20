@@ -1,5 +1,6 @@
 import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { socksDispatcher } from "fetch-socks";
+import { bodyLimit, undiciConnections } from "./limits.ts";
 import { assertSafeFetchTarget, SsrfError } from "./ssrf.ts";
 import { pickUserAgent } from "./ua.ts";
 
@@ -31,7 +32,6 @@ export interface HttpResponse {
 }
 
 const DEFAULT_TIMEOUT = 12_000;
-const BODY_LIMIT = 512_000;
 
 function defaultHeaders(url: string, accept?: string): Record<string, string> {
   const ua = pickUserAgent();
@@ -76,7 +76,7 @@ function createDispatcher(): Dispatcher {
     allowH2: true,
     keepAliveTimeout: 12_000,
     keepAliveMaxTimeout: 30_000,
-    connections: 72,
+    connections: undiciConnections(),
     pipelining: 1,
     connect: { timeout: 8_000 },
   });
@@ -101,9 +101,54 @@ function headerRecord(headers: Headers): Record<string, string> {
   return out;
 }
 
-async function readLimited(res: { text: () => Promise<string> }): Promise<string> {
-  const text = await res.text();
-  return text.length > BODY_LIMIT ? text.slice(0, BODY_LIMIT) : text;
+type LimitedSource = {
+  body?: {
+    getReader: () => {
+      read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+      cancel: () => Promise<void>;
+    };
+  } | null;
+  arrayBuffer?: () => Promise<ArrayBuffer>;
+  text?: () => Promise<string>;
+};
+
+/** Stream at most `bodyLimit()` bytes, then cancel the rest. Never buffer the full payload. */
+export async function readLimitedBytes(res: LimitedSource): Promise<Buffer> {
+  const limit = bodyLimit();
+  const stream = res.body;
+  if (stream && typeof stream.getReader === "function") {
+    const reader = stream.getReader();
+    const chunks: Buffer[] = [];
+    let received = 0;
+    try {
+      while (received < limit) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value?.length) continue;
+        const take = Math.min(value.length, limit - received);
+        chunks.push(Buffer.from(value.subarray(0, take)));
+        received += take;
+        if (take < value.length) break;
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!chunks.length) return Buffer.alloc(0);
+    return chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
+  }
+  if (typeof res.arrayBuffer === "function") {
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > limit ? buf.subarray(0, limit) : buf;
+  }
+  return Buffer.alloc(0);
+}
+
+export async function readLimitedBody(res: LimitedSource): Promise<string> {
+  return (await readLimitedBytes(res)).toString("utf8");
 }
 
 export async function fetchPublic(req: HttpRequest): Promise<HttpResponse> {
@@ -127,7 +172,7 @@ export async function fetchPublic(req: HttpRequest): Promise<HttpResponse> {
         signal: controller.signal,
       });
       const rec = headerRecord(res.headers);
-      const body = await readLimited(res);
+      const body = await readLimitedBody(res);
       const location = rec.location;
       let finalUrl = url.href;
       if (location) {
@@ -186,8 +231,7 @@ export async function fetchPublicBinary(url: string, timeoutMs = 8_000): Promise
         signal: controller.signal,
       });
       const rec = headerRecord(res.headers);
-      const buf = Buffer.from(await res.arrayBuffer());
-      const sliced = buf.length > BODY_LIMIT ? buf.subarray(0, BODY_LIMIT) : buf;
+      const sliced = await readLimitedBytes(res);
       return {
         ok: res.ok,
         status: res.status,

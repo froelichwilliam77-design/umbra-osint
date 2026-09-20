@@ -131,12 +131,12 @@ export function clusterPhashes(
     }));
 }
 
-export async function hashFoundAvatars(rows: LedgerRow[], max = 36): Promise<{ hashed: number; clusters: ReturnType<typeof clusterPhashes> }> {
+export async function hashFoundAvatars(rows: LedgerRow[], max = 20): Promise<{ hashed: number; clusters: ReturnType<typeof clusterPhashes> }> {
   const { HostPool } = await import("./concurrency.ts");
   const candidates = rows
     .filter((r) => r.status === "found" && r.metadata?.avatarUrl)
     .slice(0, max);
-  const pool = new HostPool({ global: 4, perHost: 2 });
+  const pool = new HostPool({ global: 2, perHost: 1 });
   const hits: (AvatarHit & { phash: string })[] = [];
   await Promise.all(
     candidates.map((row) =>

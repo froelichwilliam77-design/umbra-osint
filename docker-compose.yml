@@ -9,6 +9,9 @@ services:
       # Clearnet by default. With `--profile tor` the app uses the sidecar SOCKS proxy.
       UMBRA_PROXY: ${UMBRA_PROXY:-}
       UMBRA_TLS: ${UMBRA_TLS:-auto}
+      UMBRA_PLAYWRIGHT: ${UMBRA_PLAYWRIGHT:-0}
+      UMBRA_PLAYWRIGHT_MAX: ${UMBRA_PLAYWRIGHT_MAX:-1}
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=512}
       HIBP_API_KEY: ${HIBP_API_KEY:-}
     depends_on:
       tor:

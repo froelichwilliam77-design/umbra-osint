@@ -1,5 +1,8 @@
+import pLimit from "p-limit";
 import { detectWaf } from "./classify.ts";
 import type { HttpRequest, HttpResponse } from "./http.ts";
+import { bodyLimit, playwrightConcurrent, playwrightRetryMax } from "./limits.ts";
+import { isSoftMemoryPressure } from "./memory.ts";
 import { assertSafeFetchTarget } from "./ssrf.ts";
 
 type PlaywrightBrowser = {
@@ -15,7 +18,11 @@ type PlaywrightBrowser = {
 };
 
 let playwrightTried = false;
-let chromiumLauncher: ((opts: { headless: boolean }) => Promise<PlaywrightBrowser>) | null = null;
+let chromiumLauncher:
+  | ((opts: { headless: boolean; args?: string[] }) => Promise<PlaywrightBrowser>)
+  | null = null;
+
+const browserGate = pLimit(playwrightConcurrent());
 
 export function playwrightEnabled(): boolean {
   const raw = (process.env.UMBRA_PLAYWRIGHT ?? "").trim().toLowerCase();
@@ -23,8 +30,10 @@ export function playwrightEnabled(): boolean {
 }
 
 export function playwrightMax(): number {
-  return Math.min(40, Math.max(0, Number(process.env.UMBRA_PLAYWRIGHT_MAX ?? 20) || 20));
+  return playwrightRetryMax();
 }
+
+export { playwrightConcurrent };
 
 async function loadChromium() {
   if (playwrightTried) return chromiumLauncher;
@@ -32,7 +41,9 @@ async function loadChromium() {
   try {
     const spec = "playwright";
     const loader = new Function("s", "return import(s)") as (s: string) => Promise<{
-      chromium: { launch: (opts: { headless: boolean }) => Promise<PlaywrightBrowser> };
+      chromium: {
+        launch: (opts: { headless: boolean; args?: string[] }) => Promise<PlaywrightBrowser>;
+      };
     }>;
     const mod = await loader(spec);
     chromiumLauncher = mod.chromium.launch.bind(mod.chromium) as typeof chromiumLauncher;
@@ -48,89 +59,95 @@ export async function playwrightAvailable(): Promise<boolean> {
   return Boolean(launch);
 }
 
+function skipped(req: HttpRequest, started: number, error: string): HttpResponse {
+  return {
+    ok: false,
+    status: 0,
+    url: req.url,
+    finalUrl: req.url,
+    headers: {},
+    body: "",
+    latencyMs: Date.now() - started,
+    error,
+    via: "playwright",
+  };
+}
+
 /**
  * Authorized public GET only. No form fills, no logins, no credential stuffing.
  * SSRF still applies. Used for Cloudflare/CAPTCHA rows that already classified as blocked/escalate.
+ * Serial: at most one Chromium at a time, killed after each navigation.
  */
 export async function fetchPlaywright(req: HttpRequest): Promise<HttpResponse> {
   const started = Date.now();
   const method = (req.method ?? "GET").toUpperCase();
   if (method !== "GET") {
-    return {
-      ok: false,
-      status: 0,
-      url: req.url,
-      finalUrl: req.url,
-      headers: {},
-      body: "",
-      latencyMs: 0,
-      error: "Playwright escalation is GET-only.",
-      via: "playwright",
-    };
+    return skipped(req, started, "Playwright escalation is GET-only.");
+  }
+  if (!playwrightEnabled()) {
+    return skipped(req, started, "Playwright is disabled (set UMBRA_PLAYWRIGHT=1 to enable).");
+  }
+  if (isSoftMemoryPressure()) {
+    return skipped(req, started, "Playwright skipped: memory pressure");
   }
   try {
     await assertSafeFetchTarget(req.url);
   } catch (err) {
     return {
-      ok: false,
-      status: 0,
-      url: req.url,
-      finalUrl: req.url,
-      headers: {},
-      body: "",
-      latencyMs: Date.now() - started,
-      error: err instanceof Error ? err.message : String(err),
+      ...skipped(req, started, err instanceof Error ? err.message : String(err)),
       ssrf: true,
-      via: "playwright",
     };
+  }
+  return browserGate(() => fetchPlaywrightSerial(req, started));
+}
+
+async function fetchPlaywrightSerial(req: HttpRequest, started: number): Promise<HttpResponse> {
+  if (isSoftMemoryPressure()) {
+    return skipped(req, started, "Playwright skipped: memory pressure");
   }
   const launch = await loadChromium();
   if (!launch) {
-    return {
-      ok: false,
-      status: 0,
-      url: req.url,
-      finalUrl: req.url,
-      headers: {},
-      body: "",
-      latencyMs: Date.now() - started,
-      error: "playwright is not installed",
-      via: "playwright",
-    };
+    return skipped(req, started, "playwright is not installed");
   }
   const timeoutMs = req.timeoutMs ?? 18_000;
   let browser: PlaywrightBrowser | undefined;
   try {
-    browser = await launch({ headless: true });
+    browser = await launch({
+      headless: true,
+      args: [
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-extensions",
+        "--js-flags=--max-old-space-size=128",
+      ],
+    });
     const page = await browser.newPage();
-    const resp = await page.goto(req.url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-    const body = (await page.content()).slice(0, 512_000);
-    const status = resp?.status() ?? 0;
-    const headers = resp?.headers() ?? {};
-    const finalUrl = resp?.url() ?? req.url;
-    await page.close();
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      url: req.url,
-      finalUrl,
-      headers,
-      body,
-      latencyMs: Date.now() - started,
-      via: "playwright",
-    };
+    try {
+      const resp = await page.goto(req.url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+      const body = (await page.content()).slice(0, bodyLimit());
+      const status = resp?.status() ?? 0;
+      const headers = resp?.headers() ?? {};
+      const finalUrl = resp?.url() ?? req.url;
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        url: req.url,
+        finalUrl,
+        headers,
+        body,
+        latencyMs: Date.now() - started,
+        via: "playwright",
+      };
+    } finally {
+      try {
+        await page.close();
+      } catch {
+        /* ignore */
+      }
+    }
   } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      url: req.url,
-      finalUrl: req.url,
-      headers: {},
-      body: "",
-      latencyMs: Date.now() - started,
-      error: err instanceof Error ? err.message : String(err),
-      via: "playwright",
-    };
+    return skipped(req, started, err instanceof Error ? err.message : String(err));
   } finally {
     try {
       await browser?.close();
