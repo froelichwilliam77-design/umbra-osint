@@ -208,6 +208,28 @@ export function markAlertRead(id: string, read = true): WatchAlert | null {
   return alert;
 }
 
+export function ingestWatchScan(rec: WatchRecord, rows: LedgerRow[]): { rec: WatchRecord; alert: WatchAlert | null } {
+  const baseline = rec.lastFound.length === 0;
+  const next = foundSnapshot(rows);
+  const diff = diffFounds(rec.lastFound, next);
+  rec.lastFound = next;
+  rec.lastError = undefined;
+  if (baseline || !diff.newFounds.length) {
+    return { rec, alert: null };
+  }
+  const alert: WatchAlert = {
+    id: randomUUID(),
+    watchId: rec.id,
+    query: rec.query,
+    mode: rec.mode,
+    createdAt: new Date().toISOString(),
+    newFounds: diff.newFounds,
+    goneFounds: diff.goneFounds,
+    read: false,
+  };
+  return { rec, alert };
+}
+
 export function foundSnapshot(rows: LedgerRow[]): FoundSnapshot[] {
   return rows
     .filter((r) => r.status === "found")
@@ -283,28 +305,13 @@ export async function runWatch(id: string): Promise<WatchRecord | null> {
     rec.lastError = undefined;
     persistWatch(rec);
     const stored = await waitForScan(scan.id);
-    const next = foundSnapshot(stored.rows);
-    const diff = diffFounds(rec.lastFound, next);
-    rec.lastFound = next;
-    persistWatch(rec);
-    if (diff.newFounds.length || (rec.lastFound.length > 0 && diff.goneFounds.length && next.length === 0)) {
-      /* still alert on new founds only — gone-only is noisy */
+    const ingested = ingestWatchScan(rec, stored.rows);
+    persistWatch(ingested.rec);
+    if (ingested.alert) {
+      ingested.alert.webhookDelivered = await postWebhook(ingested.alert);
+      persistAlert(ingested.alert);
     }
-    if (diff.newFounds.length) {
-      const alert: WatchAlert = {
-        id: randomUUID(),
-        watchId: rec.id,
-        query: rec.query,
-        mode: rec.mode,
-        createdAt: new Date().toISOString(),
-        newFounds: diff.newFounds,
-        goneFounds: diff.goneFounds,
-        read: false,
-      };
-      alert.webhookDelivered = await postWebhook(alert);
-      persistAlert(alert);
-    }
-    return rec;
+    return ingested.rec;
   } catch (err) {
     rec.lastError = err instanceof Error ? err.message : String(err);
     rec.nextRunAt = new Date(Date.now() + rec.intervalMs).toISOString();

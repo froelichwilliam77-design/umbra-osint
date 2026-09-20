@@ -8,6 +8,7 @@ import {
   deleteWatch,
   diffFounds,
   foundSnapshot,
+  ingestWatchScan,
   listWatches,
   resetWatchesForTests,
 } from "../server/watches.ts";
@@ -64,6 +65,17 @@ describe("watch lists", () => {
     const diff = diffFounds(prev, next);
     expect(diff.newFounds.map((f) => f.site)).toEqual(["Bitbucket"]);
     expect(diff.goneFounds.map((f) => f.site)).toEqual(["GitLab"]);
+  });
+
+  it("takes a silent baseline then alerts only on new founds", () => {
+    process.env.UMBRA_CASES_DIR = dir;
+    process.env.UMBRA_WATCH_MIN_MS = "100";
+    const rec = createWatch({ query: "octocat", mode: "handle", intervalMs: 100 });
+    const first = ingestWatchScan(rec, [row("GitHub")]);
+    expect(first.alert).toBeNull();
+    expect(first.rec.lastFound.map((f) => f.site)).toEqual(["GitHub"]);
+    const second = ingestWatchScan(first.rec, [row("GitHub"), row("GitLab")]);
+    expect(second.alert?.newFounds.map((f) => f.site)).toEqual(["GitLab"]);
   });
 
   it("persists watches next to the cases volume and rejects crawl seeds", () => {
