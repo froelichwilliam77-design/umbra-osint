@@ -21,9 +21,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ComparePanel, GraphPanel } from "@/components/GraphPanel";
 import { CasesPanel, openSavedCase } from "@/components/CasesPanel";
+import { AlertsPanel } from "@/components/AlertsPanel";
 import { VirtualLedger } from "@/components/VirtualLedger";
 import { createBatcher, progressPercent, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
 import type {
+  CrawlDossier,
   HostDossier,
   IdentityGraph,
   LedgerRow,
@@ -37,9 +39,11 @@ import type {
   ScanProgress,
   ScanSummary,
   SchemaStats,
+  WatchAlert,
+  WatchRecord,
 } from "@shared/types";
 import { AUTHORIZED_USE } from "@shared/constants";
-import { caseFromScan, listLocalCases, saveLocalCase } from "@/lib/cases";
+import { caseFromScan, loadCases, saveCaseHybrid, type CasesPersist } from "@/lib/cases";
 
 const STATUSES: LedgerStatus[] = ["found", "miss", "blocked", "escalate", "error", "invalid"];
 
@@ -78,10 +82,13 @@ function isMail(d: ScanSummary["dossier"]): d is MailDossier {
   return Boolean(d && "email" in d);
 }
 function isHost(d: ScanSummary["dossier"]): d is HostDossier {
-  return Boolean(d && "domain" in d && !("email" in d));
+  return Boolean(d && "dns" in d && "domain" in d);
 }
 function isPhone(d: ScanSummary["dossier"]): d is PhoneDossier {
   return Boolean(d && "e164" in d);
+}
+function isCrawl(d: ScanSummary["dossier"]): d is CrawlDossier {
+  return Boolean(d && "kind" in d && d.kind === "crawl");
 }
 
 export default function App() {
@@ -103,6 +110,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [graph, setGraph] = useState<IdentityGraph | null>(null);
   const [cases, setCases] = useState<SavedCase[]>([]);
+  const [casesPersist, setCasesPersist] = useState<CasesPersist>("local");
+  const [watches, setWatches] = useState<WatchRecord[]>([]);
+  const [alerts, setAlerts] = useState<WatchAlert[]>([]);
+  const [watchPersist, setWatchPersist] = useState<"volume" | "memory">("memory");
+  const [watchWebhook, setWatchWebhook] = useState(false);
+  const [powerNote, setPowerNote] = useState<string | null>(null);
   const [compare, setCompare] = useState<ScanCompare | null>(null);
   const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
@@ -115,6 +128,32 @@ export default function App() {
   rowsRef.current = rows;
   scanRef.current = scan;
   graphRef.current = graph;
+
+  const refreshWatches = () => {
+    void fetch("/api/watches")
+      .then(async (r) =>
+        r.ok
+          ? ((await r.json()) as {
+              persist?: "volume" | "memory";
+              watches?: WatchRecord[];
+              alerts?: WatchAlert[];
+            })
+          : null,
+      )
+      .then((data) => {
+        if (!data) return;
+        if (data.persist) setWatchPersist(data.persist);
+        setWatches(data.watches ?? []);
+        setAlerts(data.alerts ?? []);
+      })
+      .catch(() => undefined);
+    void fetch("/api/health")
+      .then(async (r) => (r.ok ? ((await r.json()) as { watches?: { webhook?: boolean } }) : null))
+      .then((h) => {
+        if (h?.watches?.webhook != null) setWatchWebhook(h.watches.webhook);
+      })
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     void fetch("/api/schema")
@@ -129,12 +168,26 @@ export default function App() {
       .then(setSchema)
       .catch(() => setSchema(null));
     void fetch("/api/health")
-      .then(async (r) => (r.ok ? ((await r.json()) as { limits?: { profile?: ScanProfile } }) : null))
+      .then(async (r) =>
+        r.ok
+          ? ((await r.json()) as {
+              limits?: { profile?: ScanProfile; power?: boolean };
+              power?: { enabled?: boolean; allowed?: boolean; note?: string };
+            })
+          : null,
+      )
       .then((h) => {
         if (h?.limits?.profile === "full" || h?.limits?.profile === "lean") setProfile(h.limits.profile);
+        if (h?.power?.note) setPowerNote(h.power.note);
       })
       .catch(() => undefined);
-    void listLocalCases().then(setCases).catch(() => undefined);
+    void loadCases()
+      .then((loaded) => {
+        setCasesPersist(loaded.persist);
+        setCases(loaded.cases);
+      })
+      .catch(() => undefined);
+    void refreshWatches();
   }, []);
 
   useEffect(() => {
@@ -174,8 +227,8 @@ export default function App() {
     if (!s) return;
     batcherRef.current?.flush();
     const rec = caseFromScan(s, rowsRef.current, graphRef.current ?? s.graph);
-    await saveLocalCase(rec);
-    setCases((prev) => [rec, ...prev.filter((c) => c.id !== rec.id)].slice(0, 24));
+    const saved = await saveCaseHybrid(rec, casesPersist, s.id);
+    setCases((prev) => [saved, ...prev.filter((c) => c.id !== saved.id)].slice(0, 24));
   };
 
   const start = async (override?: { query?: string; mode?: ScanMode; keepPivots?: boolean }) => {
@@ -305,20 +358,38 @@ export default function App() {
 
   const runPivots = () => {
     const s = scan;
-    if (!s || !isMail(s.dossier)) return;
+    if (!s) return;
     void persistActive(s);
-    const d = s.dossier;
-    const handle = d.localPartAnalysis.base || d.localPart;
-    pivotQueueRef.current = [
-      { query: handle, mode: "handle" },
-      { query: d.domain, mode: "host" },
-    ];
-    const first = pivotQueueRef.current.shift();
-    if (first) {
-      setQuery(first.query);
-      setMode(first.mode);
-      setNotice(`Pivoting ${first.mode} ${first.query}, then host ${d.domain}`);
-      void start({ query: first.query, mode: first.mode, keepPivots: true });
+    if (isMail(s.dossier)) {
+      const d = s.dossier;
+      const handle = d.localPartAnalysis.base || d.localPart;
+      pivotQueueRef.current = [
+        { query: handle, mode: "handle" },
+        { query: d.domain, mode: "host" },
+      ];
+      const first = pivotQueueRef.current.shift();
+      if (first) {
+        setQuery(first.query);
+        setMode(first.mode);
+        setNotice(`Pivoting ${first.mode} ${first.query}, then host ${d.domain}`);
+        void start({ query: first.query, mode: first.mode, keepPivots: true });
+      }
+      return;
+    }
+    if (isCrawl(s.dossier)) {
+      const d = s.dossier;
+      pivotQueueRef.current = [
+        ...d.usernames.slice(0, 2).map((u) => ({ query: u, mode: "handle" as const })),
+        ...d.emails.slice(0, 1).map((e) => ({ query: e, mode: "mail" as const })),
+        { query: d.host, mode: "host" },
+      ];
+      const first = pivotQueueRef.current.shift();
+      if (first) {
+        setQuery(first.query);
+        setMode(first.mode);
+        setNotice(`Crawl pivots: ${first.mode} ${first.query}`);
+        void start({ query: first.query, mode: first.mode, keepPivots: true });
+      }
     }
   };
 
@@ -380,8 +451,8 @@ export default function App() {
           <h1 className="mt-3 text-3xl font-medium text-white">Authorized use only</h1>
           <p className="mt-4 text-fog-100">{AUTHORIZED_USE}</p>
           <p className="mt-3 text-sm text-fog-300">
-            Handle, mail, host, and phone modules query public endpoints. Private/loopback fetches are blocked. Silent
-            mail oracles never SMTP the subject. Phone mode never sends SMS.
+            Handle, mail, host, phone, and crawl modules query public endpoints. Private/loopback fetches are blocked.
+            Silent mail oracles never SMTP the subject. Phone mode never sends SMS.
           </p>
           <Button
             className="mt-8 w-fit bg-accent text-white"
@@ -444,6 +515,12 @@ export default function App() {
               Run pivots
             </Button>
           )}
+          {scan && isCrawl(scan.dossier) && (
+            <Button size="sm" variant="outline" className="tap-lg" onClick={runPivots}>
+              <Waypoints className="h-3.5 w-3.5" />
+              Run pivots
+            </Button>
+          )}
         </div>
       </header>
 
@@ -456,6 +533,7 @@ export default function App() {
               ["mail", "Mail"],
               ["host", "Host"],
               ["phone", "Phone"],
+              ["crawl", "Crawl"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -501,9 +579,10 @@ export default function App() {
           ))}
           <span className="font-mono text-[11px] text-fog-300">
             {profile === "lean"
-              ? `Lean: ~${schema?.leanSites ?? 200} handle sites · high-signal mail first (fits 1 GB Railway).`
-              : "Full: all clearnet sites + remaining mail oracles. Fast/high-signal tier first."}
+              ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
+              : "Full: all clearnet sites + remaining mail oracles. Power (more workers + TLS) when UMBRA_POWER=1 or RAM ≥2 GB."}
           </span>
+          {powerNote && <span className="font-mono text-[11px] text-fog-500">{powerNote}</span>}
         </div>
         <form
           className="mt-3 flex flex-col gap-2 sm:flex-row"
@@ -517,7 +596,7 @@ export default function App() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="octocat · press@github.com · github.com · +14155552671"
+              placeholder="octocat · press@github.com · github.com · https://example.com · +14155552671"
               className="tap-lg pl-9"
               autoFocus
               inputMode={mode === "phone" ? "tel" : "text"}
@@ -638,14 +717,18 @@ export default function App() {
       )}
       {scan && isHost(scan.dossier) && <HostCards dossier={scan.dossier} />}
       {scan && isPhone(scan.dossier) && <PhoneCards dossier={scan.dossier} />}
+      {scan && isCrawl(scan.dossier) && (
+        <CrawlCards dossier={scan.dossier} onPivot={pivotTo} onRunPivots={runPivots} />
+      )}
       <GraphPanel
         graph={graph}
         onPivot={pivotTo}
-        onRunPivots={scan && isMail(scan.dossier) ? runPivots : undefined}
+        onRunPivots={scan && (isMail(scan.dossier) || isCrawl(scan.dossier)) ? runPivots : undefined}
       />
       <ComparePanel compare={compare} onClose={() => setCompare(null)} />
       <CasesPanel
         cases={cases}
+        persist={casesPersist}
         onChange={setCases}
         onOpen={(rec) => {
           const opened = openSavedCase(rec);
@@ -659,6 +742,15 @@ export default function App() {
           setNotice(`Opened saved case ${rec.mode} ${rec.query} (${rec.found} found) — no re-scan.`);
         }}
         onCompare={setCompare}
+      />
+      <AlertsPanel
+        watches={watches}
+        alerts={alerts}
+        persist={watchPersist}
+        webhook={watchWebhook}
+        defaultQuery={scan?.query}
+        defaultMode={scan?.mode}
+        onRefresh={refreshWatches}
       />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -709,7 +801,7 @@ export default function App() {
                 {rows.length === 0
                   ? busy
                     ? "Waiting for the first classified row…"
-                    : "Run a handle, mail, host, or phone recon to fill the ledger."
+                    : "Run a handle, mail, host, phone, or crawl recon to fill the ledger."
                   : filter === "found"
                     ? "Found first — no hits yet. Miss/blocked stay out of this view. Tap All or Hits."
                     : "No rows match this filter."}
@@ -1177,6 +1269,73 @@ function HostCards({ dossier }: { dossier: HostDossier }) {
             </div>
           </div>
         )}
+      </Card>
+    </div>
+  );
+}
+
+function CrawlCards({
+  dossier,
+  onPivot,
+  onRunPivots,
+}: {
+  dossier: CrawlDossier;
+  onPivot: (q: string, m: ScanMode) => void;
+  onRunPivots: () => void;
+}) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Card icon={<Globe className="h-4 w-4" />} title="Crawl">
+        <p className="break-all font-mono text-sm">{dossier.seed}</p>
+        <p className="mt-1 text-xs text-fog-300">
+          {dossier.pages}/{dossier.maxPages} pages · same-origin {dossier.origin}
+        </p>
+        <p className="font-mono text-[11px] text-fog-500">
+          skipped {dossier.skipped} · SSRF {dossier.blocked}
+        </p>
+        {dossier.title && <p className="mt-2 text-sm text-fog-100">{dossier.title}</p>}
+        <Button size="sm" className="mt-3 tap-lg" onClick={onRunPivots}>
+          <Waypoints className="h-3.5 w-3.5" />
+          Run pivots
+        </Button>
+      </Card>
+      <Card icon={<Mail className="h-4 w-4" />} title="Emails">
+        {dossier.emails.length === 0 && <p className="text-sm text-fog-500">None harvested</p>}
+        <ul className="max-h-28 space-y-1 overflow-auto font-mono text-xs text-fog-300">
+          {dossier.emails.slice(0, 12).map((e) => (
+            <li key={e}>
+              <button className="text-accent hover:underline" onClick={() => onPivot(e, "mail")}>
+                {e}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card icon={<UserRound className="h-4 w-4" />} title="Usernames">
+        {dossier.usernames.length === 0 && <p className="text-sm text-fog-500">None harvested</p>}
+        <ul className="max-h-28 space-y-1 overflow-auto font-mono text-xs text-fog-300">
+          {dossier.usernames.slice(0, 12).map((u) => (
+            <li key={u}>
+              <button className="text-accent hover:underline" onClick={() => onPivot(u, "handle")}>
+                @{u}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card icon={<ShieldAlert className="h-4 w-4" />} title="Headers">
+        {Object.keys(dossier.headers).length === 0 && <p className="text-sm text-fog-500">No security headers</p>}
+        {Object.entries(dossier.headers)
+          .slice(0, 6)
+          .map(([k, v]) => (
+            <p key={k} className="truncate font-mono text-[11px] text-fog-300">
+              {k}: {v}
+            </p>
+          ))}
+        <Button size="sm" variant="outline" className="mt-3 tap-lg" onClick={() => onPivot(dossier.host, "host")}>
+          <Globe className="h-3.5 w-3.5" />
+          {dossier.host}
+        </Button>
       </Card>
     </div>
   );

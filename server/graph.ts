@@ -1,5 +1,6 @@
 import type {
   AvatarCluster,
+  CrawlDossier,
   DetectedKind,
   GraphEdge,
   GraphNode,
@@ -83,7 +84,7 @@ export function buildIdentityGraph(input: {
       addEdge(edges, centerId, id, "region");
     }
   }
-  if (dossier && "domain" in dossier && !("email" in dossier)) {
+  if (dossier && "dns" in dossier && "domain" in dossier) {
     const d = dossier as HostDossier;
     for (const san of (d.cert?.san ?? []).slice(0, 6)) {
       const host = san.replace(/^\*\./, "");
@@ -91,6 +92,23 @@ export function buildIdentityGraph(input: {
       addNode(nodes, { id, kind: "host", label: host, pivot: { query: host, mode: "host" } });
       addEdge(edges, centerId, id, "san");
     }
+  }
+
+  if (dossier && "kind" in dossier && dossier.kind === "crawl") {
+    const d = dossier as CrawlDossier;
+    for (const email of d.emails.slice(0, 8)) {
+      const id = `mail:${email}`;
+      addNode(nodes, { id, kind: "mail", label: email, pivot: { query: email, mode: "mail" } });
+      addEdge(edges, centerId, id, "harvested");
+    }
+    for (const handle of d.usernames.slice(0, 8)) {
+      const id = `handle:${handle}`;
+      addNode(nodes, { id, kind: "handle", label: handle, pivot: { query: handle, mode: "handle" } });
+      addEdge(edges, centerId, id, "harvested");
+    }
+    const hostId = `host:${d.host}`;
+    addNode(nodes, { id: hostId, kind: "host", label: d.host, pivot: { query: d.host, mode: "host" } });
+    addEdge(edges, centerId, hostId, "origin");
   }
 
   const found = input.rows.filter((r) => r.status === "found");

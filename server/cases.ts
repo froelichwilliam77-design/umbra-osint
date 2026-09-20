@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFile
 import { join } from "node:path";
 import type { IdentityGraph, LedgerRow, SavedCase, ScanSummary } from "../shared/types.ts";
 import { compareScans } from "../shared/compare.ts";
-import { exportJson, exportMarkdown } from "./exports.ts";
+import { exportExecutiveHtml, exportJson, exportMarkdown } from "../shared/exports.ts";
 
 const MAX_CASES = 24;
 const MAX_FOUND_ROWS = 80;
@@ -23,6 +23,7 @@ function canWrite(dir: string): boolean {
 export function casesDir(): string | null {
   const env = process.env.UMBRA_CASES_DIR?.trim();
   if (env) return canWrite(env) ? env : null;
+  if (existsSync("/data") && canWrite("/data/cases")) return "/data/cases";
   if (existsSync("/data") && canWrite("/data/umbra-cases")) return "/data/umbra-cases";
   return null;
 }
@@ -166,6 +167,13 @@ export function exportCase(id: string, format: string): { body: string; contentT
       body: exportMarkdown(rec.summary, rec.foundRows),
       contentType: "text/markdown",
       filename: `${base}.md`,
+    };
+  }
+  if (format === "html") {
+    return {
+      body: exportExecutiveHtml(rec.summary, rec.foundRows, { caseSavedAt: rec.savedAt }),
+      contentType: "text/html",
+      filename: `${base}.html`,
     };
   }
   return {

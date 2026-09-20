@@ -6,6 +6,7 @@ const KIND_TONE: Record<string, string> = {
   mail: "border-accent/50 bg-accent/10",
   handle: "border-signal-found/40 bg-signal-found/10",
   host: "border-accent/40 bg-accent/10",
+  crawl: "border-accent/40 bg-accent/10",
   phone: "border-signal-blocked/40 bg-signal-blocked/10",
   profile: "border-ink-600 bg-ink-950",
   oracle: "border-signal-escalate/40 bg-signal-escalate/10",

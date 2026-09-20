@@ -93,6 +93,10 @@ describe("saved cases", () => {
     const file = exportCase("c1", "md");
     expect(file?.body).toMatch(/press@github.com/);
     expect(file?.body).toMatch(/GitHub/);
+    const html = exportCase("c1", "html");
+    expect(html?.body).toMatch(/executive report/);
+    expect(html?.body).toMatch(/press@github.com/);
+    expect(html?.body).toMatch(/Print \/ Save as PDF/);
     expect(deleteCase("c1")).toBe(true);
     expect(getCase("c1")).toBeNull();
   });
