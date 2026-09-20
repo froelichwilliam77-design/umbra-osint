@@ -1,5 +1,11 @@
 import type { LedgerRow } from "../shared/types.ts";
-import { classifyResponse, excerpt, handleAllowed } from "./classify.ts";
+import {
+  classifyResponse,
+  excerpt,
+  handleAllowed,
+  locationLooksLikeProfile,
+  looksLikeApiUrl,
+} from "./classify.ts";
 import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { extractMetadata } from "./extract.ts";
 import { fetchPublic, jitter } from "./http.ts";
@@ -76,22 +82,48 @@ export async function probeSite(
     };
   }
 
+  const accept =
+    headers?.Accept ??
+    (body || looksLikeApiUrl(url) ? "application/json, text/plain, */*" : undefined);
+
   let res = await fetchPublic({
     url,
     method,
     headers,
     body,
-    accept: headers?.Accept ?? (body ? "application/json, text/plain, */*" : undefined),
+    accept,
   });
-  if (res.status === 429) {
+  if (res.status === 429 || res.status === 503) {
     await jitter(400, 1100);
     res = await fetchPublic({
       url,
       method,
       headers,
       body,
-      accept: headers?.Accept ?? (body ? "application/json, text/plain, */*" : undefined),
+      accept,
     });
+  }
+  // Follow one same-host profile redirect so dual-condition + metadata see the real page.
+  if (
+    method === "GET" &&
+    res.status >= 300 &&
+    res.status < 400 &&
+    res.location &&
+    locationLooksLikeProfile(url, res.location, handle)
+  ) {
+    const followed = await fetchPublic({
+      url: res.finalUrl || res.location,
+      method: "GET",
+      headers,
+      accept,
+    });
+    if (!followed.ssrf && followed.status > 0) {
+      res = {
+        ...followed,
+        location: res.location,
+        url,
+      };
+    }
   }
 
   if (res.ssrf) {

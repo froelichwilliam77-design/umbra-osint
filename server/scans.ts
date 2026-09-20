@@ -95,7 +95,7 @@ export async function startScan(input: {
     kind === "handle"
       ? sitesForScan(includeNsfw).length
       : kind === "mail"
-        ? schema.oracles.length + 5
+        ? schema.oracles.length + 8
         : HOST_LEDGER_COUNT;
 
   const id = randomUUID();
@@ -126,11 +126,20 @@ export async function startScan(input: {
 }
 
 async function execute(stored: StoredScan, workers: number, perHost: number): Promise<void> {
+  let sinceProgress = 0;
   const onRow = (row: LedgerRow) => {
     stored.rows.push(row);
     bump(stored.summary.progress, row.status);
     emit(stored, { type: "row", row });
+    sinceProgress += 1;
+    if (sinceProgress >= 8) {
+      emit(stored, { type: "progress", progress: stored.summary.progress });
+      sinceProgress = 0;
+    }
+  };
+  const flushProgress = () => {
     emit(stored, { type: "progress", progress: stored.summary.progress });
+    sinceProgress = 0;
   };
 
   try {
@@ -220,6 +229,53 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
             }
           : undefined,
       });
+      onRow({
+        id: `${stored.summary.id}:dkim`,
+        scanId: stored.summary.id,
+        mode: "mail",
+        target: stored.summary.query,
+        site: "DKIM",
+        category: "dns",
+        status: dossier.dkim.length ? "found" : "miss",
+        reason: dossier.dkim.length
+          ? dossier.dkim.map((d) => d.selector).join(", ")
+          : `No common DKIM selectors on ${dossier.domain}`,
+        url: dossier.domain,
+        method: "DNS",
+      });
+      onRow({
+        id: `${stored.summary.id}:bimi`,
+        scanId: stored.summary.id,
+        mode: "mail",
+        target: stored.summary.query,
+        site: "BIMI",
+        category: "dns",
+        status: dossier.bimi?.present ? "found" : "miss",
+        reason: dossier.bimi?.present ? dossier.bimi.raw ?? "v=BIMI1" : `No TXT at default._bimi.${dossier.domain}`,
+        url: `default._bimi.${dossier.domain}`,
+        method: "DNS",
+      });
+      onRow({
+        id: `${stored.summary.id}:gravatar`,
+        scanId: stored.summary.id,
+        mode: "mail",
+        target: stored.summary.query,
+        site: "Gravatar hash",
+        category: "identity",
+        status: dossier.gravatar?.exists ? "found" : "miss",
+        reason: dossier.gravatar?.exists
+          ? dossier.gravatar.displayName ?? "Public Gravatar profile"
+          : "No public Gravatar profile (hash still useful for pivot).",
+        url: `https://en.gravatar.com/${dossier.gravatar?.hash ?? ""}.json`,
+        method: "GET",
+        metadata: dossier.gravatar
+          ? {
+              displayName: dossier.gravatar.displayName,
+              avatarUrl: dossier.gravatar.avatarUrl,
+              extra: { md5: dossier.gravatar.hash, sha256: dossier.gravatar.sha256 ?? "" },
+            }
+          : undefined,
+      });
       stored.summary.progress.total = stored.summary.siteCount;
       await runMailScan(stored.summary.id, stored.summary.query, { workers, perHost, onRow });
     } else {
@@ -234,6 +290,7 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
   } catch (err) {
     emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
+    flushProgress();
     stored.summary.status = "done";
     stored.summary.finishedAt = new Date().toISOString();
     emit(stored, { type: "done", scan: stored.summary });

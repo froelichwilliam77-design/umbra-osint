@@ -1,6 +1,7 @@
 import dns from "node:dns/promises";
 import tls from "node:tls";
-import type { DmarcRecord, HostDossier, LedgerRow, SpfRecord } from "../shared/types.ts";
+import { DKIM_SELECTORS } from "../shared/constants.ts";
+import type { DkimSelector, DmarcRecord, HostDossier, LedgerRow, SpfRecord } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
 import { htmlTitle } from "./extract.ts";
 import { fetchFollow } from "./http.ts";
@@ -86,14 +87,89 @@ function parseDmarc(txts: string[]): DmarcRecord[] {
     });
 }
 
+export function parseSecurityTxt(body: string): {
+  contact: string[];
+  expires?: string;
+  encryption: string[];
+  policy: string[];
+  canonical?: string;
+  preferredLanguages?: string;
+} {
+  const contact: string[] = [];
+  const encryption: string[] = [];
+  const policy: string[] = [];
+  let expires: string | undefined;
+  let canonical: string | undefined;
+  let preferredLanguages: string | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx < 0) continue;
+    const key = trimmed.slice(0, idx).trim().toLowerCase();
+    const value = trimmed.slice(idx + 1).trim();
+    if (!value) continue;
+    if (key === "contact") contact.push(value);
+    else if (key === "encryption") encryption.push(value);
+    else if (key === "policy") policy.push(value);
+    else if (key === "expires") expires = value;
+    else if (key === "canonical") canonical = value;
+    else if (key === "preferred-languages") preferredLanguages = value;
+  }
+  return { contact, expires, encryption, policy, canonical, preferredLanguages };
+}
+
+export async function lookupDkim(domain: string): Promise<DkimSelector[]> {
+  const results = await Promise.all(
+    DKIM_SELECTORS.map(async (selector) => {
+      try {
+        const txt = (await dns.resolveTxt(`${selector}._domainkey.${domain}`)).map((p) => p.join(""));
+        const raw = txt.find((t) => /v=dkim1/i.test(t)) ?? txt[0];
+        if (!raw) return { selector, present: false as const };
+        return { selector, present: true as const, raw };
+      } catch {
+        return { selector, present: false as const };
+      }
+    }),
+  );
+  return results.filter((r) => r.present);
+}
+
+export async function lookupBimi(domain: string): Promise<{ present: boolean; raw?: string }> {
+  try {
+    const txt = (await dns.resolveTxt(`default._bimi.${domain}`)).map((p) => p.join(""));
+    const raw = txt.find((t) => /v=bimi1/i.test(t)) ?? txt[0];
+    if (raw) return { present: true, raw };
+    return { present: false };
+  } catch {
+    return { present: false };
+  }
+}
+
+function daysRemaining(dateStr?: string): number | undefined {
+  if (!dateStr) return undefined;
+  const t = Date.parse(dateStr);
+  if (!Number.isFinite(t)) return undefined;
+  return Math.round((t - Date.now()) / 86_400_000);
+}
+
 function rdapCandidates(domain: string): string[] {
   const urls = [
     `https://rdap.org/domain/${encodeURIComponent(domain)}`,
     `https://www.rdap.net/domain/${encodeURIComponent(domain)}`,
   ];
-  if (domain.endsWith(".com") || domain.endsWith(".net")) {
-    const tld = domain.split(".").pop();
+  const tld = domain.split(".").pop()?.toLowerCase();
+  if (tld === "com" || tld === "net") {
     urls.push(`https://rdap.verisign.com/${tld}/v1/domain/${encodeURIComponent(domain)}`);
+  }
+  if (tld === "org") {
+    urls.push(`https://rdap.publicinterestregistry.org/rdap/domain/${encodeURIComponent(domain)}`);
+  }
+  if (tld === "app" || tld === "dev" || tld === "page") {
+    urls.push(`https://rdap.nic.google/domain/${encodeURIComponent(domain)}`);
+  }
+  if (tld === "io") {
+    urls.push(`https://rdap.nic.io/domain/${encodeURIComponent(domain)}`);
   }
   return urls;
 }
@@ -181,7 +257,13 @@ async function fetchSecurityTxt(domain: string): Promise<HostDossier["securityTx
   for (const url of urls) {
     const res = await fetchFollow({ url, accept: "text/plain" });
     if (res.status === 200 && /contact:/i.test(res.body)) {
-      return { found: true, url: res.finalUrl || url, excerpt: excerpt(res.body, "Contact", 400) };
+      const parsed = parseSecurityTxt(res.body);
+      return {
+        found: true,
+        url: res.finalUrl || url,
+        excerpt: excerpt(res.body, "Contact", 400),
+        ...parsed,
+      };
     }
   }
   return { found: false };
@@ -214,6 +296,8 @@ async function fetchHttps(domain: string): Promise<HostDossier["https"]> {
     xFrameOptions: res.headers["x-frame-options"],
     xContentTypeOptions: res.headers["x-content-type-options"],
     referrerPolicy: res.headers["referrer-policy"],
+    permissionsPolicy: res.headers["permissions-policy"] ?? res.headers["feature-policy"],
+    altSvc: res.headers["alt-svc"],
     headers,
     finalUrl: res.finalUrl,
   };
@@ -247,6 +331,8 @@ async function fetchCert(domain: string): Promise<HostDossier["cert"]> {
           san,
           validFrom: cert.valid_from,
           validTo: cert.valid_to,
+          daysRemaining: daysRemaining(cert.valid_to),
+          serial: cert.serialNumber,
         });
       },
     );
@@ -260,21 +346,24 @@ async function fetchCert(domain: string): Promise<HostDossier["cert"]> {
 
 export async function buildHostDossier(domain: string): Promise<HostDossier> {
   await assertSafeFetchTarget(`https://${domain}/`);
-  const [a, aaaa, mxRaw, ns, txt, cname, dmarcTxt, soa, caa, rdap, securityTxt, https, cert] = await Promise.all([
-    safeResolve(domain, "A"),
-    safeResolve(domain, "AAAA"),
-    dns.resolveMx(domain).catch(() => [] as { priority: number; exchange: string }[]),
-    safeResolve(domain, "NS"),
-    safeResolve(domain, "TXT"),
-    safeResolve(domain, "CNAME"),
-    safeResolve(`_dmarc.${domain}`, "TXT"),
-    resolveSoa(domain),
-    resolveCaa(domain),
-    fetchRdap(domain),
-    fetchSecurityTxt(domain),
-    fetchHttps(domain),
-    fetchCert(domain),
-  ]);
+  const [a, aaaa, mxRaw, ns, txt, cname, dmarcTxt, soa, caa, rdap, securityTxt, https, cert, dkim, bimi] =
+    await Promise.all([
+      safeResolve(domain, "A"),
+      safeResolve(domain, "AAAA"),
+      dns.resolveMx(domain).catch(() => [] as { priority: number; exchange: string }[]),
+      safeResolve(domain, "NS"),
+      safeResolve(domain, "TXT"),
+      safeResolve(domain, "CNAME"),
+      safeResolve(`_dmarc.${domain}`, "TXT"),
+      resolveSoa(domain),
+      resolveCaa(domain),
+      fetchRdap(domain),
+      fetchSecurityTxt(domain),
+      fetchHttps(domain),
+      fetchCert(domain),
+      lookupDkim(domain),
+      lookupBimi(domain),
+    ]);
 
   void resolvePublic;
 
@@ -296,6 +385,8 @@ export async function buildHostDossier(domain: string): Promise<HostDossier> {
     securityTxt,
     https,
     cert,
+    dkim,
+    bimi,
   };
 }
 
@@ -327,7 +418,7 @@ function hostRow(
   };
 }
 
-export const HOST_LEDGER_COUNT = 12;
+export const HOST_LEDGER_COUNT = 15;
 
 export async function runHostScan(
   scanId: string,
@@ -467,8 +558,11 @@ export async function runHostScan(
               displayName: dossier.rdap.registrar,
               extra: {
                 expires: dossier.rdap.expires ?? "",
+                updated: dossier.rdap.updated ?? "",
                 dnssec: dossier.rdap.dnssec ?? false,
                 abuse: dossier.rdap.abuseEmail ?? "",
+                nameservers: (dossier.rdap.nameservers ?? []).slice(0, 6).join(", "),
+                country: dossier.rdap.registrantCountry ?? "",
               },
             }
           : undefined,
@@ -483,7 +577,13 @@ export async function runHostScan(
       "tls",
       dossier.securityTxt?.found ? "found" : "miss",
       dossier.securityTxt?.found
-        ? dossier.securityTxt.excerpt ?? "Published"
+        ? [
+            dossier.securityTxt.contact?.[0],
+            dossier.securityTxt.expires && `expires ${dossier.securityTxt.expires}`,
+            dossier.securityTxt.excerpt,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Published"
         : "No security.txt",
       { url: `https://${domain}/.well-known/security.txt`, method: "GET" },
     ),
@@ -514,6 +614,9 @@ export async function runHostScan(
               csp: Boolean(https.csp),
               xfo: https.xFrameOptions ?? "",
               xcto: https.xContentTypeOptions ?? "",
+              referrer: https.referrerPolicy ?? "",
+              permissions: Boolean(https.permissionsPolicy),
+              altSvc: Boolean(https.altSvc),
             },
           },
         },
@@ -528,7 +631,12 @@ export async function runHostScan(
       "tls",
       dossier.cert?.san.length || dossier.cert?.subject ? "found" : "miss",
       dossier.cert
-        ? [dossier.cert.subject, dossier.cert.issuer && `issuer ${dossier.cert.issuer}`, dossier.cert.san.slice(0, 6).join(", ")]
+        ? [
+            dossier.cert.subject,
+            dossier.cert.issuer && `issuer ${dossier.cert.issuer}`,
+            dossier.cert.daysRemaining != null && `${dossier.cert.daysRemaining}d remaining`,
+            dossier.cert.san.slice(0, 8).join(", "),
+          ]
             .filter(Boolean)
             .join(" · ")
         : "No certificate captured",
@@ -540,15 +648,56 @@ export async function runHostScan(
               displayName: dossier.cert.subject,
               extra: {
                 issuer: dossier.cert.issuer ?? "",
-                san: dossier.cert.san.slice(0, 12).join(", "),
+                san: dossier.cert.san.slice(0, 16).join(", "),
+                validFrom: dossier.cert.validFrom ?? "",
                 validTo: dossier.cert.validTo ?? "",
+                daysRemaining: dossier.cert.daysRemaining ?? "",
+                serial: dossier.cert.serial ?? "",
               },
             }
           : undefined,
       },
     ),
   );
+  const txtPreview = dossier.dns.txt.filter((t) => !/^v=spf1/i.test(t)).slice(0, 4);
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "DNS TXT",
+      "dns",
+      dossier.dns.txt.length ? "found" : "miss",
+      dossier.dns.txt.length
+        ? `${dossier.dns.txt.length} TXT · ${txtPreview.map((t) => t.slice(0, 80)).join(" | ") || "see dossier"}`
+        : "No TXT records",
+      { url: domain, method: "DNS" },
+    ),
+  );
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "DKIM",
+      "dns",
+      dossier.dkim.length ? "found" : "miss",
+      dossier.dkim.length
+        ? dossier.dkim.map((d) => d.selector).join(", ")
+        : `No common selectors on _domainkey.${domain}`,
+      { url: domain, method: "DNS" },
+    ),
+  );
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "BIMI",
+      "dns",
+      dossier.bimi?.present ? "found" : "miss",
+      dossier.bimi?.present ? dossier.bimi.raw ?? "v=BIMI1" : `No TXT at default._bimi.${domain}`,
+      { url: `default._bimi.${domain}`, method: "DNS" },
+    ),
+  );
   return dossier;
 }
 
-export { parseSpf, parseDmarc };
+export { parseSpf, parseDmarc, fetchRdap as lookupRdap };

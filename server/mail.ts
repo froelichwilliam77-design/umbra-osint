@@ -4,7 +4,7 @@ import type { LedgerRow, MailDossier } from "../shared/types.ts";
 import { analyzeLocalPart } from "./detect.ts";
 import type { OracleVerdict } from "./oracles.ts";
 import { HostPool, hostFromUrl } from "./concurrency.ts";
-import { parseDmarc, parseSpf } from "./host.ts";
+import { parseDmarc, parseSpf, lookupBimi, lookupDkim, lookupRdap } from "./host.ts";
 import { fetchPublic, jitter } from "./http.ts";
 import { handlers } from "./mail-oracles.ts";
 import { gravatarProfile, mailPivots } from "./mail-util.ts";
@@ -85,6 +85,9 @@ async function lookupM365Tenant(email: string): Promise<MailDossier["tenant"]> {
 async function domainAuthRecords(domain: string): Promise<{
   spf: MailDossier["domainSpf"];
   dmarc: MailDossier["domainDmarc"];
+  dkim: MailDossier["dkim"];
+  bimi: MailDossier["bimi"];
+  domainCreated?: string;
 }> {
   let txt: string[] = [];
   let dmarcTxt: string[] = [];
@@ -98,7 +101,14 @@ async function domainAuthRecords(domain: string): Promise<{
   } catch {
     dmarcTxt = [];
   }
-  return { spf: parseSpf(txt), dmarc: parseDmarc(dmarcTxt) };
+  const [dkim, bimi, rdap] = await Promise.all([lookupDkim(domain), lookupBimi(domain), lookupRdap(domain)]);
+  return {
+    spf: parseSpf(txt),
+    dmarc: parseDmarc(dmarcTxt),
+    dkim,
+    bimi,
+    domainCreated: rdap?.created,
+  };
 }
 
 export async function buildMailDossier(email: string): Promise<MailDossier> {
@@ -138,6 +148,9 @@ export async function buildMailDossier(email: string): Promise<MailDossier> {
     tenant,
     domainSpf: auth.spf,
     domainDmarc: auth.dmarc,
+    dkim: auth.dkim,
+    bimi: auth.bimi,
+    domainCreated: auth.domainCreated,
     pivots: [...new Set(pivots)],
     localPartAnalysis,
   };

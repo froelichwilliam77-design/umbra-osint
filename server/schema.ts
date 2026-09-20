@@ -26,7 +26,7 @@ export interface WmnSite {
 
 export interface ExtractorSpec {
   site: string;
-  kind: "json" | "json-first";
+  kind: "json" | "json-first" | "html";
   avatar?: string;
   bio?: string;
   followers?: string;

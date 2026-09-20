@@ -79,6 +79,12 @@ export interface PreflightResult {
   errors: string[];
 }
 
+export interface DkimSelector {
+  selector: string;
+  present: boolean;
+  raw?: string;
+}
+
 export interface LocalPartAnalysis {
   localPart: string;
   plusTag?: string;
@@ -86,6 +92,7 @@ export interface LocalPartAnalysis {
   patterns: string[];
   possibleNames: string[];
   trailingYear?: string;
+  trailingDigits?: string;
 }
 
 export interface MailDossier {
@@ -115,6 +122,9 @@ export interface MailDossier {
   };
   domainSpf: SpfRecord[];
   domainDmarc: DmarcRecord[];
+  dkim: DkimSelector[];
+  bimi?: { present: boolean; raw?: string };
+  domainCreated?: string;
   pivots: string[];
   localPartAnalysis: LocalPartAnalysis;
 }
@@ -164,6 +174,12 @@ export interface HostDossier {
     found: boolean;
     url?: string;
     excerpt?: string;
+    contact?: string[];
+    expires?: string;
+    encryption?: string[];
+    policy?: string[];
+    canonical?: string;
+    preferredLanguages?: string;
   };
   https?: {
     ok: boolean;
@@ -176,6 +192,8 @@ export interface HostDossier {
     xFrameOptions?: string;
     xContentTypeOptions?: string;
     referrerPolicy?: string;
+    permissionsPolicy?: string;
+    altSvc?: string;
     headers: Record<string, string>;
     finalUrl?: string;
   };
@@ -185,7 +203,11 @@ export interface HostDossier {
     san: string[];
     validFrom?: string;
     validTo?: string;
+    daysRemaining?: number;
+    serial?: string;
   };
+  dkim: DkimSelector[];
+  bimi?: { present: boolean; raw?: string };
 }
 
 export interface ScanProgress {

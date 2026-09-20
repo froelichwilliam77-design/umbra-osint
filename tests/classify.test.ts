@@ -108,6 +108,62 @@ describe("classifyResponse", () => {
     });
     expect(r.status).toBe("escalate");
   });
+
+  it("treats HTTP 404 as miss even when missing-string drifted", () => {
+    const r = classifyResponse(spec, {
+      status: 404,
+      body: '{"error": 404}',
+      headers: {},
+      requestedUrl: "https://www.reddit.com/user/nope/about.json",
+    });
+    expect(r.status).toBe("miss");
+    expect(r.reason).toMatch(/404/);
+  });
+
+  it("treats HTTP 410 as miss, 451 as blocked", () => {
+    const gone = classifyResponse(spec, {
+      status: 410,
+      body: "gone",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+    });
+    const legal = classifyResponse(spec, {
+      status: 451,
+      body: "unavailable",
+      headers: {},
+      requestedUrl: "https://example.com/octocat",
+    });
+    expect(gone.status).toBe("miss");
+    expect(legal.status).toBe("blocked");
+  });
+
+  it("recovers a found from JSON username when e_string is stale", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: '"obsolete_marker"', m_code: 404, m_string: "Not Found" },
+      {
+        status: 200,
+        body: '{"login":"octocat","id":1}',
+        headers: {},
+        requestedUrl: "https://api.github.com/users/octocat",
+        account: "octocat",
+      },
+    );
+    expect(r.status).toBe("found");
+    expect(r.reason.toLowerCase()).toMatch(/json/);
+  });
+
+  it("treats empty JSON collections on 200 as miss", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: '"id":', m_code: 200, m_string: "nope" },
+      {
+        status: 200,
+        body: "[]",
+        headers: {},
+        requestedUrl: "https://gitlab.com/api/v4/users?username=nope",
+      },
+    );
+    expect(r.status).toBe("miss");
+  });
 });
 
 describe("detectWaf / redirect helpers", () => {
@@ -165,6 +221,20 @@ describe("soft-404 / case-insensitive / regex / redirect-as-evidence", () => {
       },
     );
     expect(r.status).toBe("found");
+  });
+
+  it("matches JSON missing-strings despite whitespace drift", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: '"id":', m_code: 404, m_string: '"error":404' },
+      {
+        status: 404,
+        body: '{"message": "Not Found", "error": 404}',
+        headers: {},
+        requestedUrl: "https://www.reddit.com/user/nope/about.json",
+      },
+    );
+    expect(r.status).toBe("miss");
+    expect(r.missHit).toBe(true);
   });
 
   it("skips handles that fail the site username regex", () => {

@@ -28,8 +28,10 @@ Classification is **dual-condition**:
 - **found** if `status == e_code` AND `e_string` is in the body (empty string = ignore that half).
 - **miss** if `status == m_code` AND `m_string` is in the body.
 - Both true → **escalate**. Neither → **escalate**.
-- `403` / `429` / CAPTCHA / WAF signatures → **blocked**, never a miss.
+- `403` / `429` / `451` / CAPTCHA / WAF signatures → **blocked**, never a miss.
+- HTTP `404` / `410` without an exist match → **miss** (status indicates absence even if `m_string` drifted).
 - Redirects to login / explore / generic home → **miss** with a reason.
+- JSON bodies that name `{account}` recover stale exist strings as **found**.
 
 `{account}` is replaced with the handle. Optional `{account}` also works in `post_body` and header values.
 

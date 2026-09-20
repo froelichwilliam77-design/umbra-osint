@@ -10,23 +10,48 @@ export function sha256Email(s: string): string {
   return createHash("sha256").update(s.trim().toLowerCase()).digest("hex");
 }
 
+const HANDLE_OK = /^[A-Za-z0-9._-]{2,39}$/;
+
+function add(out: Set<string>, value: string | undefined) {
+  if (!value) return;
+  const v = value.replace(/^@/, "").toLowerCase();
+  if (HANDLE_OK.test(v)) out.add(v);
+}
+
+/** Local-part → likely handles. Never invents names that aren't in the address. */
 export function mailPivots(email: string): string[] {
   const [local] = email.trim().toLowerCase().split("@");
   const analysis = analyzeLocalPart(local);
   const out = new Set<string>();
-  if (analysis.base) out.add(analysis.base);
-  if (analysis.plusTag && analysis.base) out.add(analysis.base);
-  const stripped = analysis.base.replace(/(19|20)\d{2}$/, "");
-  if (stripped && stripped !== analysis.base) out.add(stripped);
+  add(out, analysis.base);
+  add(out, local);
+  const stripped = analysis.base.replace(/\d+$/, "");
+  add(out, stripped);
+
   for (const name of analysis.possibleNames) {
-    const parts = name.toLowerCase().split(/\s+/);
-    if (parts.length === 2) {
-      out.add(parts.join(""));
-      out.add(parts.join("."));
-      out.add(parts.join("_"));
-    }
+    const parts = name.toLowerCase().split(/\s+/).filter(Boolean);
+    if (parts.length !== 2) continue;
+    const [first, last] = parts;
+    add(out, first + last);
+    add(out, `${first}.${last}`);
+    add(out, `${first}_${last}`);
+    add(out, `${first}-${last}`);
+    add(out, first[0] + last);
+    add(out, first + last[0]);
+    add(out, `${last}.${first}`);
+    add(out, last + first);
+    add(out, first);
+    add(out, last);
   }
-  return [...out].filter((h) => /^[A-Za-z0-9._-]{2,39}$/.test(h));
+
+  if (stripped.includes(".") || stripped.includes("_") || stripped.includes("-")) {
+    add(out, stripped.replace(/[._-]/g, ""));
+    add(out, stripped.replace(/[._-]/g, "."));
+    add(out, stripped.replace(/[._-]/g, "_"));
+    add(out, stripped.replace(/[._-]/g, "-"));
+  }
+
+  return [...out];
 }
 
 export async function gravatarProfile(email: string) {

@@ -65,13 +65,15 @@ export default function App() {
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [selected, setSelected] = useState<LedgerRow | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [filter, setFilter] = useState<FilterMode>("all");
+  const [filter, setFilter] = useState<FilterMode>("found");
   const [category, setCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [schema, setSchema] = useState<SchemaStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
+  const pendingRef = useRef<LedgerRow[]>([]);
+  const flushTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     void fetch("/api/schema")
@@ -80,16 +82,41 @@ export default function App() {
       .catch(() => setSchema(null));
   }, []);
 
-  useEffect(() => () => sourceRef.current?.close(), []);
+  useEffect(() => () => {
+    sourceRef.current?.close();
+    if (flushTimer.current) window.clearTimeout(flushTimer.current);
+  }, []);
+
+  const flushRows = () => {
+    const batch = pendingRef.current;
+    pendingRef.current = [];
+    flushTimer.current = undefined;
+    if (!batch.length) return;
+    setRows((prev) => prev.concat(batch));
+    setSelected((cur) => cur ?? batch.find((r) => r.status === "found") ?? batch[0]);
+  };
+
+  const queueRow = (row: LedgerRow) => {
+    pendingRef.current.push(row);
+    if (flushTimer.current == null) {
+      flushTimer.current = window.setTimeout(flushRows, 50);
+    }
+  };
 
   const start = async (override?: { query?: string; mode?: ScanMode }) => {
     const q = (override?.query ?? query).trim();
     if (!q) return;
     setError(null);
     setBusy(true);
+    pendingRef.current = [];
+    if (flushTimer.current) window.clearTimeout(flushTimer.current);
+    flushTimer.current = undefined;
     setRows([]);
     setSelected(null);
     setInspectorOpen(false);
+    setFilter("found");
+    setCategory("all");
+    setSearch("");
     sourceRef.current?.close();
     try {
       const res = await fetch("/api/scans", {
@@ -114,11 +141,9 @@ export default function App() {
       es.onmessage = (ev) => {
         const event = JSON.parse(ev.data) as ScanEvent;
         if (event.type === "hello") setScan(event.scan);
-        if (event.type === "row") {
-          setRows((prev) => [...prev, event.row]);
-          setSelected((cur) => cur ?? event.row);
-        }
+        if (event.type === "row") queueRow(event.row);
         if (event.type === "dossier" || event.type === "done") {
+          if (event.type === "done") flushRows();
           setScan(event.type === "done" ? event.scan : (s) => (s ? { ...s, dossier: event.dossier } : s));
         }
         if (event.type === "progress") {
@@ -131,6 +156,7 @@ export default function App() {
         }
       };
       es.onerror = () => {
+        flushRows();
         setBusy(false);
         es.close();
       };
@@ -153,18 +179,19 @@ export default function App() {
   }, [rows]);
 
   const visible = useMemo(() => {
+    const q = search.toLowerCase();
     const filtered = rows.filter((r) => {
       if (filter === "hits" && r.status !== "found" && r.status !== "blocked" && r.status !== "escalate") {
         return false;
       }
       if (filter !== "all" && filter !== "hits" && r.status !== filter) return false;
       if (category !== "all" && r.category !== category) return false;
-      if (search) {
-        const q = search.toLowerCase();
+      if (q) {
         return (
           r.site.toLowerCase().includes(q) ||
           r.url.toLowerCase().includes(q) ||
-          r.reason.toLowerCase().includes(q)
+          r.reason.toLowerCase().includes(q) ||
+          (r.metadata?.displayName ?? "").toLowerCase().includes(q)
         );
       }
       return true;
@@ -209,22 +236,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen px-3 py-4 md:px-6">
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Radar className="h-5 w-5 text-accent" />
-            <h1 className="text-lg font-medium tracking-wide">Umbra</h1>
-            <Badge tone="muted">public OSINT</Badge>
+      <header className="sticky top-0 z-20 -mx-3 mb-4 border-b border-ink-700/80 bg-ink-950/90 px-3 py-3 backdrop-blur md:-mx-6 md:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Radar className="h-5 w-5 text-accent" />
+              <h1 className="text-lg font-medium tracking-wide">Umbra</h1>
+              <Badge tone="muted">public OSINT</Badge>
+            </div>
+            <p className="mt-1 max-w-2xl text-xs text-fog-500">
+              {schema
+                ? `${schema.handleSites} handle sites · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains`
+                : "Loading schema…"}
+            </p>
           </div>
-          <p className="mt-1 max-w-2xl text-xs text-fog-500">
-            {schema
-              ? `${schema.handleSites} handle sites · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains`
-              : "Loading schema…"}
-          </p>
-        </div>
-        <div className="hidden items-center gap-2 text-[11px] text-fog-500 md:flex">
-          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-signal-blocked" />
-          <span className="max-w-md leading-snug">{AUTHORIZED_USE}</span>
+          <div className="hidden items-center gap-2 text-[11px] text-fog-500 md:flex">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-signal-blocked" />
+            <span className="max-w-md leading-snug">{AUTHORIZED_USE}</span>
+          </div>
         </div>
       </header>
 
@@ -300,7 +329,7 @@ export default function App() {
       </section>
 
       {scan && (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-8">
           <button
             onClick={() => setFilter(filter === "hits" ? "all" : "hits")}
             className={`rounded-lg border px-3 py-2 text-left ${
@@ -322,6 +351,15 @@ export default function App() {
               <div className={`font-mono text-xl ${STATUS_COLOR[s]}`}>{progress?.[s] ?? 0}</div>
             </button>
           ))}
+          <button
+            onClick={() => setFilter("all")}
+            className={`rounded-lg border px-3 py-2 text-left ${
+              filter === "all" ? "border-accent bg-ink-800" : "border-ink-600 bg-ink-900/70"
+            }`}
+          >
+            <div className="font-mono text-[10px] uppercase text-fog-500">all</div>
+            <div className="font-mono text-xl text-fog-100">{progress?.done ?? 0}</div>
+          </button>
         </div>
       )}
 
@@ -339,7 +377,7 @@ export default function App() {
       {scan && isMail(scan.dossier) && <MailCards dossier={scan.dossier} onPivot={pivotHandle} />}
       {scan && isHost(scan.dossier) && <HostCards dossier={scan.dossier} />}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="rounded-xl border border-ink-600 bg-ink-900/70">
           <div className="flex flex-wrap items-center gap-2 border-b border-ink-600 px-3 py-2">
             <Activity className="h-4 w-4 text-accent" />
@@ -352,7 +390,7 @@ export default function App() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="filter site, url, reason"
+              placeholder="site, url, reason, name"
               className="h-8 min-w-[10rem] flex-1 md:ml-auto md:max-w-xs"
             />
             {scan && (
@@ -368,7 +406,7 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap gap-1 border-b border-ink-600 px-3 py-2">
+          <div className="flex gap-1 overflow-x-auto border-b border-ink-600 px-3 py-2">
             <Chip active={category === "all"} onClick={() => setCategory("all")}>
               all
             </Chip>
@@ -385,7 +423,9 @@ export default function App() {
                   ? busy
                     ? "Waiting for the first classified row…"
                     : "Run a handle, mail, or host recon to fill the ledger."
-                  : "No rows match this filter."}
+                  : filter === "found"
+                    ? "No found rows yet — blocked/miss stay out of this view. Tap All or Hits."
+                    : "No rows match this filter."}
               </p>
             )}
             {visible.map((row) => (
@@ -396,10 +436,19 @@ export default function App() {
                   selected?.id === row.id ? "bg-accent/10" : ""
                 }`}
               >
-                <Badge tone={row.status}>{row.status}</Badge>
+                {row.metadata?.avatarUrl ? (
+                  <img
+                    src={row.metadata.avatarUrl}
+                    alt=""
+                    className="mt-0.5 h-8 w-8 shrink-0 rounded-full border border-ink-600 object-cover"
+                  />
+                ) : (
+                  <Badge tone={row.status}>{row.status}</Badge>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm">{row.site}</span>
+                    {row.metadata?.avatarUrl && <Badge tone={row.status}>{row.status}</Badge>}
                     <span className="font-mono text-[10px] text-fog-500">{row.category}</span>
                     {row.metadata?.displayName && (
                       <span className="hidden truncate text-xs text-fog-300 sm:inline">
@@ -457,14 +506,18 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
       <div className="flex items-center gap-2">
         <Badge tone={selected.status}>{selected.status}</Badge>
         <span className="font-medium">{selected.site}</span>
+        <span className="font-mono text-[10px] text-fog-500">{selected.category}</span>
       </div>
       <Field label="Reason" value={selected.reason} />
       <Field label="URL" value={selected.url} href={selected.url} />
       {selected.profileUrl && <Field label="Profile" value={selected.profileUrl} href={selected.profileUrl} />}
-      <Field label="HTTP" value={String(selected.httpStatus ?? "n/a")} />
-      <Field label="Method" value={selected.method} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="HTTP" value={String(selected.httpStatus ?? "n/a")} />
+        <Field label="Method" value={selected.method} />
+      </div>
       {selected.finalUrl && <Field label="Final URL" value={selected.finalUrl} />}
       {selected.protection?.length ? <Field label="Protection" value={selected.protection.join(", ")} /> : null}
+      {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (
         <div className="rounded-lg border border-ink-600 bg-ink-950 p-3">
           <div className="mb-2 flex items-center gap-3">
@@ -535,7 +588,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${
+      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${
         active ? "border-accent text-fog-100" : "border-ink-600 text-fog-500"
       }`}
     >
@@ -583,8 +636,11 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
             {dossier.tenant.federationBrand ? ` · ${dossier.tenant.federationBrand}` : ""}
           </p>
         )}
+        {dossier.domainCreated && (
+          <p className="font-mono text-[11px] text-fog-500">domain created {dossier.domainCreated}</p>
+        )}
         <div className="mt-3 flex flex-wrap gap-2">
-          {pivots.slice(0, 4).map((p) => (
+          {pivots.slice(0, 6).map((p) => (
             <Button key={p} size="sm" variant="outline" onClick={() => onPivot(p)}>
               <UserRound className="h-3.5 w-3.5" />
               {p}
@@ -604,6 +660,12 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
         </p>
         <p className="mt-1 break-all font-mono text-[11px] text-fog-500">
           {dossier.domainDmarc[0]?.raw ?? "no DMARC"}
+        </p>
+        <p className="mt-2 font-mono text-[11px] text-fog-300">
+          DKIM {dossier.dkim.length ? dossier.dkim.map((d) => d.selector).join(", ") : "none"}
+        </p>
+        <p className="font-mono text-[11px] text-fog-500">
+          BIMI {dossier.bimi?.present ? "present" : "absent"}
         </p>
       </Card>
       <Card icon={<Fingerprint className="h-4 w-4" />} title="Gravatar">
@@ -632,7 +694,7 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
       </Card>
       <Card icon={<UserRound className="h-4 w-4" />} title="Pivots">
         {pivots.length === 0 && <p className="text-sm text-fog-500">No handle pivots</p>}
-        <ul className="space-y-1 font-mono text-xs text-fog-300">
+        <ul className="max-h-36 space-y-1 overflow-auto font-mono text-xs text-fog-300">
           {pivots.map((p) => (
             <li key={p}>
               <button className="text-accent hover:underline" onClick={() => onPivot(p)}>
@@ -652,6 +714,7 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
 }
 
 function HostCards({ dossier }: { dossier: HostDossier }) {
+  const txtOther = dossier.dns.txt.filter((t) => !/^v=spf1/i.test(t) && !/^v=dmarc1/i.test(t)).slice(0, 3);
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <Card icon={<Globe className="h-4 w-4" />} title="RDAP">
@@ -662,9 +725,17 @@ function HostCards({ dossier }: { dossier: HostDossier }) {
         {dossier.rdap?.expires && (
           <p className="font-mono text-[11px] text-fog-500">expires {dossier.rdap.expires}</p>
         )}
+        {dossier.rdap?.updated && (
+          <p className="font-mono text-[11px] text-fog-500">updated {dossier.rdap.updated}</p>
+        )}
         <p className="font-mono text-[11px] text-fog-500">
           {dossier.rdap?.status?.slice(0, 3).join(", ") || "no status"}
         </p>
+        {dossier.rdap?.nameservers?.length ? (
+          <p className="mt-1 font-mono text-[11px] text-fog-300">
+            NS {dossier.rdap.nameservers.slice(0, 3).join(", ")}
+          </p>
+        ) : null}
         {dossier.rdap?.abuseEmail && (
           <p className="mt-1 font-mono text-[11px] text-fog-300">{dossier.rdap.abuseEmail}</p>
         )}
@@ -683,27 +754,58 @@ function HostCards({ dossier }: { dossier: HostDossier }) {
         {dossier.dns.caa.length > 0 && (
           <p className="font-mono text-[11px] text-fog-500">CAA {dossier.dns.caa.slice(0, 2).join("; ")}</p>
         )}
+        {txtOther.map((t) => (
+          <p key={t} className="truncate font-mono text-[11px] text-fog-500">
+            TXT {t}
+          </p>
+        ))}
+        <p className="mt-1 font-mono text-[11px] text-fog-300">
+          DKIM {dossier.dkim.length ? dossier.dkim.map((d) => d.selector).join(", ") : "none"}
+          {dossier.bimi?.present ? " · BIMI" : ""}
+        </p>
       </Card>
-      <Card icon={<ShieldAlert className="h-4 w-4" />} title="SPF / DMARC">
+      <Card icon={<ShieldAlert className="h-4 w-4" />} title="SPF / DMARC / security.txt">
         <p className="break-all font-mono text-[11px]">{dossier.spf[0]?.raw ?? "no SPF"}</p>
         <p className="mt-2 break-all font-mono text-[11px]">{dossier.dmarc[0]?.raw ?? "no DMARC"}</p>
+        <p className="mt-2 text-xs text-fog-300">
+          security.txt {dossier.securityTxt?.found ? "present" : "absent"}
+        </p>
+        {dossier.securityTxt?.contact?.slice(0, 2).map((c) => (
+          <p key={c} className="truncate font-mono text-[11px] text-fog-500">
+            {c}
+          </p>
+        ))}
+        {dossier.securityTxt?.expires && (
+          <p className="font-mono text-[11px] text-fog-500">expires {dossier.securityTxt.expires}</p>
+        )}
       </Card>
       <Card icon={<Fingerprint className="h-4 w-4" />} title="HTTPS / cert">
         <p className="text-sm">{dossier.https?.title ?? "no title"}</p>
         <p className="mt-1 font-mono text-[11px] text-fog-500">
-          {dossier.https?.status} {dossier.https?.server} {dossier.https?.hsts ? "HSTS" : ""}
+          {dossier.https?.status} {dossier.https?.server} {dossier.https?.hsts ? "HSTS" : ""}{" "}
+          {dossier.https?.csp ? "CSP" : ""}
         </p>
         {dossier.https?.xFrameOptions && (
           <p className="font-mono text-[11px] text-fog-500">XFO {dossier.https.xFrameOptions}</p>
         )}
-        <p className="mt-1 text-xs text-fog-500">
-          security.txt {dossier.securityTxt?.found ? "present" : "absent"}
-        </p>
+        {dossier.https?.referrerPolicy && (
+          <p className="font-mono text-[11px] text-fog-500">RP {dossier.https.referrerPolicy}</p>
+        )}
         {dossier.cert && (
-          <p className="mt-2 font-mono text-[11px] text-fog-300">
-            {dossier.cert.subject}
-            {dossier.cert.san.length ? ` · ${dossier.cert.san.slice(0, 4).join(", ")}` : ""}
-          </p>
+          <div className="mt-2 space-y-1">
+            <p className="font-mono text-[11px] text-fog-300">
+              {dossier.cert.subject}
+              {dossier.cert.daysRemaining != null ? ` · ${dossier.cert.daysRemaining}d` : ""}
+            </p>
+            <p className="font-mono text-[11px] text-fog-500">issuer {dossier.cert.issuer}</p>
+            <div className="flex flex-wrap gap-1">
+              {dossier.cert.san.slice(0, 8).map((s) => (
+                <span key={s} className="rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] text-fog-300">
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
       </Card>
     </div>
