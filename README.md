@@ -2,7 +2,7 @@
 
 Public-OSINT workstation for **handle**, **mail**, **host**, and **phone** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
-Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1003** unique platforms; 963 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
+Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
 
 Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, handle + host pivots, open-in OSINT links) and runs **161** silent registration oracles — never SMTP or password-reset mail. Have I Been Pwned is skipped entirely unless `HIBP_API_KEY` is set.
 
@@ -48,8 +48,8 @@ Live console screenshots:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across **1003** sites (963 clearnet). This upgrade local run: **193 found** / 461 miss / 178 blocked / 105 escalate on 963 clearnet (v1.1.0: 157 found / 326 miss / 140 blocked / 62 escalate on 699). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **1-click pivots** to handle `press` and host `github.com` + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: MX + SPF/DMARC + DKIM + M365 Managed + GitHub / Discord / Substack / OpenAI **found**; **29 miss** / **29 blocked** (403/429/CAPTCHA — never miss). v1.2.0 shipped **53** oracles. HIBP stays off unless `HIBP_API_KEY` is set.
+2. `octocat` in Auto/Handle — classified hits across **1001** sites (961 clearnet). This upgrade local run: **197 found** / 503 miss / 170 blocked / **40 escalate** on 961 clearnet (v1.3.0: 193 found / 461 miss / 178 blocked / 105 escalate on 963). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **1-click pivots** to handle `press` and host `github.com` + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: **13 found** / **98 miss** / **44 blocked** / **9 escalate** (v1.3.0: 9 found / 29 miss / 29 blocked / **98 escalate**). Found includes MX, SPF, DMARC, DKIM, M365 Managed, GitHub, GitLab, Discord/OpenAI/Substack when the oracle is not CAPTCHA-gated. HIBP stays off unless `HIBP_API_KEY` is set.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type, optional carrier.
 6. **Save case**, run a second query, **Compare with** the saved run. Export Markdown / JSON / JSONL / CSV / HTML.
@@ -107,15 +107,17 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 
 Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 
-- 403, 429, 451, CAPTCHA, and WAF signatures are **blocked**, never a miss.
-- HTTP 404/410 without an exist match is **miss** with a reason.
+- 403, 429, 451, 401, CAPTCHA, and WAF signatures are **blocked**, never a miss.
+- HTTP 404/410/400 without an exist match is **miss** with a reason.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
-- Both exist and missing conditions matching — or neither — is **escalate**.
+- Exist/missing substring collisions (e.g. `"them":` vs `"them":null`) resolve to the more specific side.
+- Mail oracles recover unclassified JSON flags, taken/available copy, CSRF, and signup HTML into found/miss/blocked. Escalate is the last resort.
+- Chronically CSRF-dead oracles (X, Instagram, Facebook, TikTok, Myspace) are **quarantined** as blocked and not probed.
 
 ### Anti-bot (what actually ships)
 
 - Chrome-matched headers, UA rotation, HTTP/2 via undici, per-host workers, jitter, `Retry-After` on 429/503.
-- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it. Concurrent children are capped (`UMBRA_CURL_MAX`, default 3).
+- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts, **silent mail oracles**, and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it. Concurrent children are capped (`UMBRA_CURL_MAX`, default 3).
 - **Playwright** is optional and **off by default** (Docker/Railway do not force it on). `UMBRA_PLAYWRIGHT=1` plus `npx playwright install chromium` retries blocked/escalate Cloudflare/CAPTCHA rows with an authorized public **GET** only (no logins, no credential stuffing, SSRF still applies). Hard caps: **one Chromium at a time**, killed after each navigation, `UMBRA_PLAYWRIGHT_MAX` default **1**. Do not enable on Railway 1 GB.
 
 Local without Docker: TLS impersonation is **partial** until `curl-impersonate` is on `PATH` or `UMBRA_CURL_IMPERSONATE` points at `curl_chrome146`. Check `GET /api/health` (`tlsImpersonation`, `tlsBinary`, `tlsNote`).
@@ -135,7 +137,7 @@ See [`schema/README.md`](schema/README.md).
 | File | Role |
 | --- | --- |
 | `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot (717) |
-| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (265), dual-condition |
+| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (267), dual-condition |
 | `schema/sites.curated.yaml` | Extra handle targets + JSON extractors |
 | `schema/oracles.yaml` | Silent mail oracles |
 | `schema/disposable-domains.txt` | Burn-mail flags |

@@ -2,8 +2,14 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
+# curl-impersonate (Chrome TLS) + Playwright Chromium deps for GET-only WAF escalation.
+# Still a single long-lived Node process on 0.0.0.0:$PORT — not extra sidecars.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libasound2 libpango-1.0-0 libcairo2 libx11-6 libx11-xcb1 \
+    libxcb1 libxext6 libxshmfence1 fonts-liberation \
   && mkdir -p /opt/curl-impersonate \
   && (curl -fsSL "https://github.com/lexiforest/curl-impersonate/releases/download/v2.2.3/curl-impersonate-v2.2.3.$(uname -m)-linux-gnu.tar.gz" \
       | tar -xz -C /opt/curl-impersonate \
@@ -20,6 +26,7 @@ COPY . .
 RUN if [ ! -f schema/wmn-data.json ]; then npx tsx scripts/sync-wmn.ts; fi
 RUN node scripts/gen-icons.mjs || true
 RUN npm run build
+RUN npx playwright install chromium || true
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -32,5 +39,5 @@ ENV NODE_OPTIONS=--max-old-space-size=512
 EXPOSE 43180
 
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.
-# curl-impersonate (Chrome TLS) is invoked as a child process when present — not a second long-lived service.
+# curl-impersonate (Chrome TLS) and Playwright Chromium are child processes — not extra services.
 CMD ["npm", "start"]

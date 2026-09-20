@@ -74,12 +74,19 @@ export function tlsMode(): "off" | "auto" | "always" {
   return "auto";
 }
 
-export function shouldImpersonate(opts: { protection?: string[]; url?: string; force?: boolean }): boolean {
+export function shouldImpersonate(opts: {
+  protection?: string[];
+  url?: string;
+  force?: boolean;
+  oracle?: boolean;
+}): boolean {
   if (!impersonateAvailable()) return false;
   if (isSoftMemoryPressure()) return false;
   const mode = tlsMode();
   if (mode === "off") return false;
   if (mode === "always" || opts.force) return true;
+  // Silent mail oracles are WAF-heavy — prefer Chrome TLS whenever the binary exists.
+  if (opts.oracle && mode === "auto") return true;
   if (opts.protection?.length) return true;
   const host = (() => {
     try {
@@ -88,7 +95,9 @@ export function shouldImpersonate(opts: { protection?: string[]; url?: string; f
       return "";
     }
   })();
-  return /cloudflare|akamai|fastly|imperva|sucuri/.test(host);
+  return /cloudflare|akamai|fastly|imperva|sucuri|cdninstagram|instagram|twitter|x\.com|tiktok|facebook|reddit|linkedin|discord|pinterest|shopify/.test(
+    host,
+  );
 }
 
 function parseHeaderBlob(raw: string): { status: number; headers: Record<string, string>; location?: string } {

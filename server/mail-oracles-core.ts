@@ -1,8 +1,7 @@
 import type { LedgerRow } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
-import { fetchFollow, fetchPublic } from "./http.ts";
+import { fetchOracle, fetchOracleFollow, jsonStatus, wrapHttp } from "./mail-oracle-http.ts";
 import { type OracleVerdict } from "./oracles.ts";
-import { jsonStatus, wrapHttp } from "./mail-oracle-http.ts";
 import { md5, gravatarProfile } from "./mail-util.ts";
 
 type OracleFn = (email: string) => Promise<{ verdict: OracleVerdict; extras: Partial<LedgerRow> }>;
@@ -11,7 +10,7 @@ const handlers: Record<string, OracleFn> = {
   gravatar: async (email) => {
     const hash = md5(email);
     const url = `https://en.gravatar.com/${hash}.json`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     if (res.status === 200) {
       const g = await gravatarProfile(email);
       return {
@@ -41,7 +40,7 @@ const handlers: Record<string, OracleFn> = {
   },
   spotify: async (email) => {
     const url = `https://spclient.wg.spotify.com/signup/public/v1/account?validate=1&email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     return jsonStatus(res, url, "GET", (j) => {
       const status = Number((j as { status?: number }).status);
       if (status === 20) return { status: "found", reason: "Spotify signup oracle status=20 (registered)." };
@@ -52,7 +51,7 @@ const handlers: Record<string, OracleFn> = {
   },
   adobe: async (email) => {
     const url = "https://auth.services.adobe.com/signin/v1/authenticationstate";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       accept: "application/json",
@@ -90,7 +89,7 @@ const handlers: Record<string, OracleFn> = {
   },
   github: async (email) => {
     const url = "https://github.com/signup_check/email";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -119,7 +118,7 @@ const handlers: Record<string, OracleFn> = {
   },
   archive: async (email) => {
     const url = "https://archive.org/account/s3.php?your_email=" + encodeURIComponent(email);
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: `https://archive.org/account/signup`,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -143,7 +142,7 @@ const handlers: Record<string, OracleFn> = {
   },
   duolingo: async (email) => {
     const url = `https://www.duolingo.com/2017-06-30/users?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     return jsonStatus(res, url, "GET", (j) => {
       const users = (j as { users?: unknown[] }).users;
       if (Array.isArray(users) && users.length > 0) {
@@ -155,7 +154,7 @@ const handlers: Record<string, OracleFn> = {
   },
   chess: async (email) => {
     const url = "https://www.chess.com/callback/email/available";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: `${url}?email=${encodeURIComponent(email)}`,
       accept: "application/json",
     });
@@ -168,7 +167,7 @@ const handlers: Record<string, OracleFn> = {
   },
   pinterest: async (email) => {
     const url = "https://www.pinterest.com/_ngjs/resource/EmailExistsResource/create/";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -196,7 +195,7 @@ const handlers: Record<string, OracleFn> = {
   },
   tumblr: async (email) => {
     const url = `https://www.tumblr.com/svc/account/register?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: "https://www.tumblr.com/svc/account/register",
       method: "POST",
       headers: {
@@ -218,7 +217,7 @@ const handlers: Record<string, OracleFn> = {
   },
   imgur: async (email) => {
     const url = "https://imgur.com/signin/ajax_email_available";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -238,7 +237,7 @@ const handlers: Record<string, OracleFn> = {
   },
   wordpress: async (email) => {
     const url = `https://public-api.wordpress.com/rest/v1.1/users/${encodeURIComponent(email)}/auth-options`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     if (res.status === 404) {
       return {
         verdict: { status: "miss", reason: "WordPress.com auth-options 404 — no account." },
@@ -255,7 +254,7 @@ const handlers: Record<string, OracleFn> = {
   },
   atlassian: async (email) => {
     const url = "https://id.atlassian.com/gateway/api/signup/validEmail";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: "https://id.atlassian.com" },
@@ -274,7 +273,7 @@ const handlers: Record<string, OracleFn> = {
   },
   dropbox: async (email) => {
     const url = "https://www.dropbox.com/web_elements/login?email=" + encodeURIComponent(email);
-    const res = await fetchFollow({
+    const res = await fetchOracleFollow({
       url: "https://www.dropbox.com/sso/" + encodeURIComponent(email),
       accept: "text/html",
     });
@@ -289,7 +288,7 @@ const handlers: Record<string, OracleFn> = {
   },
   hubspot: async (email) => {
     const url = "https://api.hubspot.com/login-verify/v1/users/login-precheck";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: "https://app.hubspot.com" },
@@ -308,7 +307,7 @@ const handlers: Record<string, OracleFn> = {
   },
   mozilla: async (email) => {
     const url = "https://api.accounts.firefox.com/v1/account/status";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -323,7 +322,7 @@ const handlers: Record<string, OracleFn> = {
   },
   twitter: async (email) => {
     const url = `https://api.twitter.com/i/users/email_available.json?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     return jsonStatus(res, url, "GET", (j) => {
       const taken = (j as { taken?: boolean }).taken;
       if (taken === true) return { status: "found", reason: "X/Twitter email_available taken=true." };
@@ -333,7 +332,7 @@ const handlers: Record<string, OracleFn> = {
   },
   instagram: async (email) => {
     const url = "https://www.instagram.com/api/v1/web/accounts/check_email/";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -359,7 +358,7 @@ const handlers: Record<string, OracleFn> = {
   },
   lastfm: async (email) => {
     const url = `https://www.last.fm/join/partial/validate?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     const body = res.body.toLowerCase();
     if (body.includes("sorry, this email") || body.includes("already registered") || body.includes("taken")) {
       return {

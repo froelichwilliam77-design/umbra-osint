@@ -1,4 +1,5 @@
 import { AUTHORIZED_USE } from "../shared/constants.ts";
+import { umbraVersion } from "./version.ts";
 import { impersonateHealth } from "./curl-impersonate.ts";
 import { scanLimitsPublic } from "./limits.ts";
 import { memorySnapshot } from "./memory.ts";
@@ -14,7 +15,7 @@ export async function healthPayload() {
   return {
     ok: true,
     name: "umbra",
-    version: "1.3.0",
+    version: umbraVersion(),
     warning: AUTHORIZED_USE,
     proxy: Boolean(process.env.UMBRA_PROXY),
     hibp: Boolean(process.env.HIBP_API_KEY?.trim()),

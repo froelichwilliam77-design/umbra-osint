@@ -26,13 +26,16 @@ describe("health + service worker", () => {
 
   it("bumps the PWA cache and never falls back to stale index HTML for assets", () => {
     const src = readFileSync(new URL("../client/public/sw.js", import.meta.url), "utf8");
-    expect(src).toMatch(/umbra-shell-v2/);
+    expect(src).toMatch(/umbra-shell-v4/);
     expect(src).not.toMatch(/umbra-shell-v1/);
-    expect(src).toMatch(/networkFirstNavigation/);
+    expect(src).not.toMatch(/umbra-shell-v2/);
     expect(src).toMatch(/cache:\s*"no-store"/);
     expect(src).not.toMatch(/cache\.addAll\(\["\/"/);
     expect(src).not.toMatch(/caches\.match\("\/"\)/);
     expect(src).toMatch(/skipWaiting/);
     expect(src).toMatch(/clients\.claim/);
+    // Network-only HTML / navigations — never serve stale shell HTML as a script.
+    expect(src).toMatch(/isNavigate/);
+    expect(src).toMatch(/pathname\.startsWith\("\/assets\/"\)/);
   });
 });

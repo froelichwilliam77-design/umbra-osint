@@ -8,6 +8,7 @@ interface State {
   error: Error | null;
 }
 
+/** Surfaces mount/runtime errors instead of a blank #root on dark phones. */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
 

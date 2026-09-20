@@ -37,6 +37,15 @@ import { AUTHORIZED_USE } from "@shared/constants";
 
 const STATUSES: LedgerStatus[] = ["found", "miss", "blocked", "escalate", "error", "invalid"];
 
+const STATUS_RANK: Record<LedgerStatus, number> = {
+  found: 0,
+  blocked: 1,
+  escalate: 2,
+  miss: 3,
+  error: 4,
+  invalid: 5,
+};
+
 const STATUS_COLOR: Record<LedgerStatus, string> = {
   found: "text-signal-found",
   miss: "text-signal-miss",
@@ -46,13 +55,15 @@ const STATUS_COLOR: Record<LedgerStatus, string> = {
   invalid: "text-signal-invalid",
 };
 
-const STATUS_RANK: Record<LedgerStatus, number> = {
-  found: 0,
-  blocked: 1,
-  escalate: 2,
-  error: 3,
-  invalid: 4,
-  miss: 5,
+const STATUS_WHY: Record<LedgerStatus, string> = {
+  found: "A registration or profile oracle reported this identifier is taken, or a public profile exists.",
+  miss: "The oracle reported the identifier is unused, or the profile is absent (404 / soft-404 / empty payload).",
+  blocked:
+    "The endpoint refused the probe (403, 401, 429, CAPTCHA, WAF, CSRF, or quarantined). This is not a miss — the account may still exist.",
+  escalate:
+    "The response was real but neither a present nor a missing matcher fired. Read the reason and body excerpt; this should be rare after recovery.",
+  error: "The request failed (timeout, DNS, or upstream 5xx).",
+  invalid: "The query was skipped for this target (regex, SSRF, or preflight).",
 };
 
 type FilterMode = LedgerStatus | "all" | "hits";
@@ -112,7 +123,14 @@ export default function App() {
 
   useEffect(() => {
     void fetch("/api/schema")
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) return null;
+        try {
+          return (await r.json()) as SchemaStats;
+        } catch {
+          return null;
+        }
+      })
       .then(setSchema)
       .catch(() => setSchema(null));
   }, []);
@@ -522,7 +540,7 @@ export default function App() {
             <span className="font-mono text-[11px] text-fog-500">
               {visible.length}/{rows.length}
               {progress ? ` · ${progress.done}/${progress.total}` : ""}
-              {filter !== "all" ? ` · ${filter}` : " · found first"}
+              {filter === "found" ? " · found first" : filter !== "all" ? ` · ${filter}` : " · all"}
             </span>
             <Input
               value={search}
@@ -561,7 +579,7 @@ export default function App() {
                     ? "Waiting for the first classified row…"
                     : "Run a handle, mail, host, or phone recon to fill the ledger."
                   : filter === "found"
-                    ? "No found rows yet — blocked/miss stay out of this view. Tap All or Hits."
+                    ? "Found first — no hits yet. Miss/blocked stay out of this view. Tap All or Hits."
                     : "No rows match this filter."}
               </p>
             )}
@@ -645,6 +663,10 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
         <span className="font-medium">{selected.site}</span>
         <span className="font-mono text-[10px] text-fog-500">{selected.category}</span>
       </div>
+      <div className="rounded-lg border border-ink-600 bg-ink-950 p-3 text-xs text-fog-300">
+        <div className="mb-1 font-mono text-[10px] uppercase text-fog-500">Why {selected.status}</div>
+        {STATUS_WHY[selected.status]}
+      </div>
       <Field label="Reason" value={selected.reason} />
       <Field label="URL" value={selected.url} href={selected.url} />
       {selected.profileUrl && <Field label="Profile" value={selected.profileUrl} href={selected.profileUrl} />}
@@ -652,9 +674,11 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
         <Field label="HTTP" value={String(selected.httpStatus ?? "n/a")} />
         <Field label="Method" value={selected.method} />
       </div>
-      {selected.finalUrl && <Field label="Final URL" value={selected.finalUrl} />}
+      {selected.finalUrl && selected.finalUrl !== selected.url && (
+        <Field label="Final URL" value={selected.finalUrl} href={selected.finalUrl} />
+      )}
       {selected.protection?.length ? <Field label="Protection" value={selected.protection.join(", ")} /> : null}
-      {selected.via && <Field label="Via" value={selected.via} />}
+      <Field label="Via" value={selected.via ?? "undici"} />
       {selected.phash && <Field label="Avatar pHash" value={selected.phash} />}
       {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (

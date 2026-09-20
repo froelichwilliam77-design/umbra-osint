@@ -26,7 +26,21 @@ const browserGate = pLimit(playwrightConcurrent());
 
 export function playwrightEnabled(): boolean {
   const raw = (process.env.UMBRA_PLAYWRIGHT ?? "").trim().toLowerCase();
+  // Explicit opt-in only. Unset / anything else stays OFF (Railway 1 GB OOM).
   return raw === "1" || raw === "true" || raw === "on";
+}
+
+let playwrightUsed = 0;
+
+export function takePlaywrightSlot(): boolean {
+  if (!playwrightEnabled()) return false;
+  if (playwrightUsed >= playwrightMax()) return false;
+  playwrightUsed += 1;
+  return true;
+}
+
+export function playwrightSlotsUsed(): number {
+  return playwrightUsed;
 }
 
 export function playwrightMax(): number {

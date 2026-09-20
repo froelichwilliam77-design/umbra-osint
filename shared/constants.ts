@@ -74,10 +74,18 @@ export const LOGIN_PATH_HINTS = [
   "/discover",
   "/home",
   "/welcome",
+  "/join",
+  "/search",
+  "/directory",
+  "/oops",
+  "/404",
+  "/error",
   "/accounts/login",
   "/users/sign_in",
+  "/users/sign_up",
   "/session/new",
   "/auth/login",
+  "/auth/signup",
 ];
 
 export const WAF_BODY_HINTS = [
@@ -103,6 +111,10 @@ export const WAF_BODY_HINTS = [
   "blocked by",
   "why have i been blocked",
   "cloudflare",
+  "verify you are human",
+  "please enable cookies",
+  "please wait while we check",
+  "ray id",
 ];
 
 export const WAF_HEADER_HINTS = [

@@ -74,7 +74,10 @@ async function fetchProbe(req: HttpRequest, protection?: string[]): Promise<Http
   if (
     impersonateAvailable() &&
     !impersonateFirst &&
-    (res.status === 403 || res.status === 429 || /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000)))
+    (res.status === 401 ||
+      res.status === 403 ||
+      res.status === 429 ||
+      /cloudflare|captcha|just a moment|challenge/i.test(res.body.slice(0, 4000)))
   ) {
     const r = await fetchImpersonate(req);
     if (r.status > 0) return r;
@@ -245,7 +248,7 @@ export async function runHandleScan(
           shouldEscalateBrowser(row.status, row.reason, row.method)
         ) {
           playwrightLeft -= 1;
-          const { url, pretty, method, headers } = materialize(site, handle);
+          const { url, pretty, headers } = materialize(site, handle);
           const pw = await fetchPlaywright({
             url,
             method: "GET",

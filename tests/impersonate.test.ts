@@ -30,4 +30,10 @@ describe("TLS impersonation + Playwright flags", () => {
       else process.env.UMBRA_PLAYWRIGHT = prev;
     }
   });
+
+  it("auto-impersonates mail oracles when a binary exists", () => {
+    const want = shouldImpersonate({ oracle: true, url: "https://github.com/signup_check/email" });
+    if (impersonateAvailable()) expect(want).toBe(true);
+    else expect(want).toBe(false);
+  });
 });

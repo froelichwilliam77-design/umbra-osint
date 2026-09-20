@@ -1,15 +1,14 @@
 import type { LedgerRow } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
-import { fetchFollow, fetchPublic } from "./http.ts";
 import { type OracleVerdict } from "./oracles.ts";
-import { jsonStatus, wrapHttp } from "./mail-oracle-http.ts";
+import { fetchOracle, jsonStatus, wrapHttp } from "./mail-oracle-http.ts";
 
 type OracleFn = (email: string) => Promise<{ verdict: OracleVerdict; extras: Partial<LedgerRow> }>;
 
 const handlers: Record<string, OracleFn> = {
   aboutme: async (email) => {
     const url = "https://about.me/n/app/signup";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -26,7 +25,7 @@ const handlers: Record<string, OracleFn> = {
   },
   dockerhub: async (email) => {
     const url = "https://hub.docker.com/v2/users/signup/";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,7 +42,7 @@ const handlers: Record<string, OracleFn> = {
   },
   notion: async (email) => {
     const url = "https://www.notion.so/api/v3/getSubscriptionData";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: "https://www.notion.so/api/v3/lookupEmailOnboarding",
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,7 +59,7 @@ const handlers: Record<string, OracleFn> = {
   slack: async (email) => {
     const domain = email.split("@")[1];
     const url = `https://slack.com/api/signup.checkEmail`;
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -78,7 +77,7 @@ const handlers: Record<string, OracleFn> = {
   },
   microsoft: async (email) => {
     const url = "https://login.microsoftonline.com/common/GetCredentialType?mkt=en-US";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,7 +93,7 @@ const handlers: Record<string, OracleFn> = {
   },
   flickr: async (email) => {
     const url = "https://identity.flickr.com/login";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: `https://identity.flickr.com/login?username=${encodeURIComponent(email)}`,
       accept: "text/html",
     });
@@ -115,7 +114,7 @@ const handlers: Record<string, OracleFn> = {
   },
   strava: async (email) => {
     const url = "https://www.strava.com/register";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: "https://www.strava.com/athletes/email_unique",
       method: "POST",
       headers: {
@@ -144,7 +143,7 @@ const handlers: Record<string, OracleFn> = {
   proton: async (email) => {
     const url = "https://mail.proton.me/api/core/v4/users/available";
     const local = email.split("@")[0];
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: `https://account.proton.me/api/core/v4/users/available?Name=${encodeURIComponent(local)}&ParseDomain=1`,
       accept: "application/json",
     });
@@ -157,7 +156,7 @@ const handlers: Record<string, OracleFn> = {
   },
   eventbrite: async (email) => {
     const url = `https://www.eventbrite.com/ajax/signin/check_email/?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     return jsonStatus(res, url, "GET", (j) => {
       const rec = j as { exists?: boolean; email_exists?: boolean; user?: unknown };
       if (rec.exists === true || rec.email_exists === true || rec.user) {
@@ -171,7 +170,7 @@ const handlers: Record<string, OracleFn> = {
   },
   vimeo: async (email) => {
     const url = "https://vimeo.com/join/validate";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -199,7 +198,7 @@ const handlers: Record<string, OracleFn> = {
   },
   soundcloud: async (email) => {
     const url = "https://api-auth.soundcloud.com/web-auth/identifier";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: "https://soundcloud.com" },
@@ -218,7 +217,7 @@ const handlers: Record<string, OracleFn> = {
   },
   patreon: async (email) => {
     const url = "https://www.patreon.com/api/email/available";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: `${url}?email=${encodeURIComponent(email)}`,
       accept: "application/json",
     });
@@ -232,7 +231,7 @@ const handlers: Record<string, OracleFn> = {
   },
   shopify: async (email) => {
     const url = "https://accounts.shopify.com/lookup";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       method: "POST",
       headers: {
@@ -259,7 +258,7 @@ const handlers: Record<string, OracleFn> = {
   },
   bitbucket: async (email) => {
     const url = "https://bitbucket.org/account/signin/";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: "https://bitbucket.org/account/signin/?next=/",
       method: "POST",
       headers: {
@@ -286,7 +285,7 @@ const handlers: Record<string, OracleFn> = {
   },
   gitlab: async (email) => {
     const url = "https://gitlab.com/users/sign_in";
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url: "https://gitlab.com/users",
       method: "POST",
       headers: {
@@ -314,7 +313,7 @@ const handlers: Record<string, OracleFn> = {
   },
   keybase: async (email) => {
     const url = `https://keybase.io/_/api/1.0/user/lookup.json?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json" });
+    const res = await fetchOracle({ url, accept: "application/json" });
     return jsonStatus(res, url, "GET", (j) => {
       const rec = j as { status?: { code?: number; name?: string }; them?: unknown[] };
       if (Array.isArray(rec.them) && rec.them.length > 0) {
@@ -331,7 +330,7 @@ const handlers: Record<string, OracleFn> = {
   },
   plurk: async (email) => {
     const url = `https://www.plurk.com/Users/isEmailFound?email=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url, accept: "application/json, text/plain, */*" });
+    const res = await fetchOracle({ url, accept: "application/json, text/plain, */*" });
     const body = res.body.trim().toLowerCase();
     if (body === "true" || body.includes("\"true\"")) {
       return {
@@ -351,7 +350,7 @@ const handlers: Record<string, OracleFn> = {
     const url = "https://api.venmo.com/v1/account/password-reset/request";
     void url;
     const check = `https://api.venmo.com/v1/users?query=${encodeURIComponent(email)}`;
-    const res = await fetchPublic({ url: check, accept: "application/json" });
+    const res = await fetchOracle({ url: check, accept: "application/json" });
     return jsonStatus(res, check, "GET", (j) => {
       const rec = j as { data?: unknown[]; pagination?: unknown };
       if (Array.isArray(rec.data) && rec.data.length > 0) {
@@ -373,7 +372,7 @@ const handlers: Record<string, OracleFn> = {
       };
     }
     const url = `https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}?truncateResponse=false`;
-    const res = await fetchPublic({
+    const res = await fetchOracle({
       url,
       headers: { "hibp-api-key": key, "user-agent": "Umbra-OSINT" },
       accept: "application/json",
