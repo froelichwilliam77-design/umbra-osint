@@ -37,6 +37,15 @@ import { AUTHORIZED_USE } from "@shared/constants";
 
 const STATUSES: LedgerStatus[] = ["found", "miss", "blocked", "escalate", "error", "invalid"];
 
+const STATUS_RANK: Record<LedgerStatus, number> = {
+  found: 0,
+  blocked: 1,
+  escalate: 2,
+  miss: 3,
+  error: 4,
+  invalid: 5,
+};
+
 const STATUS_COLOR: Record<LedgerStatus, string> = {
   found: "text-signal-found",
   miss: "text-signal-miss",
