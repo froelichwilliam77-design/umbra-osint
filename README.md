@@ -38,13 +38,14 @@ Live console screenshots from a local run:
 
 - Handle `octocat` — [docs/screenshots/handle_octocat_ledger.png](docs/screenshots/handle_octocat_ledger.png)
 - Mail `press@github.com` — [docs/screenshots/mail_press_github_dossier.png](docs/screenshots/mail_press_github_dossier.png)
+- Mail ledger (found oracles) — [docs/screenshots/mail_press_github_ledger.png](docs/screenshots/mail_press_github_ledger.png)
 - Host `github.com` — [docs/screenshots/host_github_rdap_dns.png](docs/screenshots/host_github_rdap_dns.png)
 
 ### First recon
 
 1. Accept the authorized-use gate.
 2. `octocat` in Auto/Handle — classified hits across the registry (GitHub should be **found** with avatar/bio/followers). This upgrade: **738** handle sites (699 clearnet). Local run: **157 found** / 326 miss / 140 blocked / 62 escalate on 699 clearnet (main README cited 163 found on 686, with fewer 404s classified as miss). GitHub is found with matcher recovery + metadata.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **Pivot local-part as handle** + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Local run: MX + SPF/DMARC + DKIM (`google, selector1, k1, s1, s2`) + M365 Managed + GitHub taken; 403/429 oracles stay **blocked**. v1.2.0 shipped **53** oracles; this release more than triples that with Holehe-style signup/login/public-API checks only (no password-reset mail).
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + **161** silent oracles + **Pivot local-part as handle** + open-in links (Google, HIBP, Hudson Rock, Epieos, Gravatar, …). Sample run: MX + SPF/DMARC + DKIM (`google, selector1, k1, s1, s2`) + M365 Managed + GitHub / Discord / Substack / OpenAI **found**; **29 miss** (LastPass, Hudson Rock, Rambler, Vrbo, …); **29 blocked** (403/429/CAPTCHA — never miss). v1.2.0 shipped **53** oracles.
 4. `github.com` in Host — RDAP (MarkMonitor), A/MX/NS/SOA/CAA/TXT, SPF/DMARC/DKIM, parsed security.txt (HackerOne), HTTPS title/headers, TLS cert SAN + days remaining. Local run: **13 found** / 2 miss (AAAA, BIMI) on 15 ledger rows.
 5. Export the ledger as Markdown / JSON / JSONL / CSV / HTML.
 
