@@ -73,11 +73,11 @@ function createDispatcher(): Dispatcher {
     return new ProxyAgent(proxy);
   }
   return new Agent({
-    allowH2: true,
-    keepAliveTimeout: 12_000,
-    keepAliveMaxTimeout: 30_000,
+    allowH2: false,
+    keepAliveTimeout: 4_000,
+    keepAliveMaxTimeout: 8_000,
     connections: undiciConnections(),
-    pipelining: 1,
+    pipelining: 0,
     connect: { timeout: 8_000 },
   });
 }

@@ -105,7 +105,7 @@ export function memoryHardMb(): number {
 }
 
 export function undiciConnections(): number {
-  return envInt("UMBRA_HTTP_CONNECTIONS", 8, 4, 16);
+  return envInt("UMBRA_HTTP_CONNECTIONS", 4, 2, 8);
 }
 
 export function defaultScanProfile(): ScanProfile {

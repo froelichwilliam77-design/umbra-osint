@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import { killImpersonateChildren } from "./curl-impersonate.ts";
-import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
+import { ScanAbortError, isHardMemoryPressure, isSoftMemoryPressure } from "./memory.ts";
 
 export interface PoolOptions {
   global: number;
@@ -53,6 +53,10 @@ export class HostPool {
     return this.global(() =>
       hostLim(async () => {
         if (this.aborted) return undefined;
+        if (isSoftMemoryPressure()) {
+          // Drop curl children so cgroup usage can fall while undici continues.
+          killImpersonateChildren();
+        }
         if (isHardMemoryPressure()) {
           this.abort("memory pressure");
           return undefined;
