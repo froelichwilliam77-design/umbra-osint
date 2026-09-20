@@ -114,7 +114,14 @@ export default function App() {
 
   useEffect(() => {
     void fetch("/api/schema")
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) return null;
+        try {
+          return (await r.json()) as SchemaStats;
+        } catch {
+          return null;
+        }
+      })
       .then(setSchema)
       .catch(() => setSchema(null));
   }, []);

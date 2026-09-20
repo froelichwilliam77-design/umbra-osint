@@ -9,8 +9,10 @@ export function GraphPanel({
   graph: IdentityGraph | null;
   onPivot: (query: string, mode: ScanMode) => void;
 }) {
-  if (!graph || graph.nodes.length === 0) return null;
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  if (!graph || !graph.nodes?.length) return null;
+  const nodes = graph.nodes ?? [];
+  const edges = graph.edges ?? [];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
     <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-fog-500">
@@ -18,7 +20,7 @@ export function GraphPanel({
         Identity graph
       </div>
       <div className="flex flex-wrap gap-2">
-        {graph.nodes.slice(0, 40).map((n) => (
+        {nodes.slice(0, 40).map((n) => (
           <button
             key={n.id}
             className="tap-lg rounded-lg border border-ink-600 px-3 py-2 text-left"
@@ -31,7 +33,7 @@ export function GraphPanel({
         ))}
       </div>
       <ul className="mt-3 max-h-28 space-y-1 overflow-auto font-mono text-[11px] text-fog-500">
-        {graph.edges.slice(0, 24).map((e, i) => (
+        {edges.slice(0, 24).map((e, i) => (
           <li key={`${e.from}-${e.to}-${i}`}>
             {byId.get(e.from)?.label} —{e.rel}→ {byId.get(e.to)?.label}
           </li>
