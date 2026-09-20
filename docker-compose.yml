@@ -1,0 +1,27 @@
+services:
+  umbra:
+    build: .
+    ports:
+      - "43180:43180"
+    environment:
+      PORT: "43180"
+      HOST: "0.0.0.0"
+      # Clearnet by default. With `--profile tor` the app uses the sidecar SOCKS proxy.
+      UMBRA_PROXY: ${UMBRA_PROXY:-}
+    depends_on:
+      tor:
+        condition: service_started
+        required: false
+
+  tor:
+    image: dperson/torproxy:latest
+    profiles: ["tor"]
+    environment:
+      TOR_NewCircuitPeriod: "30"
+    ports:
+      - "9050:9050"
+    restart: unless-stopped
+
+# Usage
+#   docker compose up --build          # clearnet
+#   UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build

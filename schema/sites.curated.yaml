@@ -1,0 +1,208 @@
+# Extra handle targets + metadata extractors layered on WhatsMyName.
+# uri_check must include {account}. Dual-condition matching applies.
+
+sites:
+  - name: Hacker News
+    uri_check: https://news.ycombinator.com/user?id={account}
+    uri_pretty: https://news.ycombinator.com/user?id={account}
+    e_code: 200
+    e_string: "created:"
+    m_code: 200
+    m_string: "No such user."
+    cat: coding
+    known: ["pg", "dang"]
+  - name: npm
+    uri_check: https://www.npmjs.com/~{account}
+    uri_pretty: https://www.npmjs.com/~{account}
+    e_code: 200
+    e_string: "npm User"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+    known: ["isaacs"]
+  - name: crates.io
+    uri_check: https://crates.io/api/v1/users/{account}
+    uri_pretty: https://crates.io/users/{account}
+    e_code: 200
+    e_string: "\"login\""
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: Keybase
+    uri_check: https://keybase.io/_/api/1.0/user/lookup.json?username={account}
+    uri_pretty: https://keybase.io/{account}
+    e_code: 200
+    e_string: "\"them\":"
+    m_code: 200
+    m_string: "\"them\":null"
+    cat: social
+    known: ["max"]
+  - name: Wikipedia (user exists)
+    uri_check: https://en.wikipedia.org/w/api.php?action=query&list=users&ususers={account}&format=json
+    uri_pretty: https://en.wikipedia.org/wiki/User:{account}
+    e_code: 200
+    e_string: "\"userid\""
+    m_code: 200
+    m_string: "\"missing\""
+    cat: social
+  - name: Stack Overflow
+    uri_check: https://api.stackexchange.com/2.3/users?inname={account}&site=stackoverflow
+    uri_pretty: https://stackoverflow.com/users?tab=UserRep&filter={account}
+    e_code: 200
+    e_string: "\"user_id\""
+    m_code: 200
+    m_string: "\"items\":[]"
+    cat: coding
+  - name: Hugging Face
+    uri_check: https://huggingface.co/api/users/{account}/overview
+    uri_pretty: https://huggingface.co/{account}
+    e_code: 200
+    e_string: "\"user\""
+    m_code: 404
+    m_string: "error"
+    cat: coding
+  - name: LinkedIn (public)
+    uri_check: https://www.linkedin.com/in/{account}/
+    uri_pretty: https://www.linkedin.com/in/{account}/
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "page not found"
+    cat: social
+    username_regex: "^[A-Za-z0-9-]{3,100}$"
+  - name: Mastodon (mastodon.social)
+    uri_check: https://mastodon.social/api/v1/accounts/lookup?acct={account}
+    uri_pretty: https://mastodon.social/@{account}
+    e_code: 200
+    e_string: "\"acct\""
+    m_code: 404
+    m_string: "Record not found"
+    cat: social
+  - name: Bluesky
+    uri_check: https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor={account}.bsky.social
+    uri_pretty: https://bsky.app/profile/{account}.bsky.social
+    e_code: 200
+    e_string: "\"handle\""
+    m_code: 400
+    m_string: "error"
+    cat: social
+    username_regex: "^[A-Za-z0-9._-]{3,30}$"
+  - name: Codeberg
+    uri_check: https://codeberg.org/api/v1/users/{account}
+    uri_pretty: https://codeberg.org/{account}
+    e_code: 200
+    e_string: "\"login\""
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: SourceHut
+    uri_check: https://sr.ht/~{account}
+    uri_pretty: https://sr.ht/~{account}
+    e_code: 200
+    e_string: "sr.ht"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: Dev.to
+    uri_check: https://dev.to/api/users/by_username?url={account}
+    uri_pretty: https://dev.to/{account}
+    e_code: 200
+    e_string: "\"username\""
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+  - name: Kaggle
+    uri_check: https://www.kaggle.com/{account}
+    uri_pretty: https://www.kaggle.com/{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "page not found"
+    cat: coding
+  - name: Replit
+    uri_check: https://replit.com/@{account}
+    uri_pretty: https://replit.com/@{account}
+    e_code: 200
+    e_string: "og:title"
+    m_code: 404
+    m_string: "not found"
+    cat: coding
+
+overrides:
+  - name: Instagram
+    username_regex: "^[A-Za-z0-9._]{1,30}$"
+  - name: X
+    username_regex: "^[A-Za-z0-9_]{1,15}$"
+  - name: TikTok
+    username_regex: "^[A-Za-z0-9._]{2,24}$"
+  - name: Reddit
+    username_regex: "^[A-Za-z0-9_-]{3,20}$"
+  - name: GitHub (User)
+    username_regex: "^[A-Za-z0-9-]{1,39}$"
+
+extractors:
+  - site: GitHub (User)
+    kind: json
+    avatar: avatar_url
+    bio: bio
+    followers: followers
+    following: following
+    displayName: name
+    location: location
+    website: blog
+  - site: GitLab
+    kind: json-first
+    avatar: avatar_url
+    displayName: name
+    bio: bio
+  - site: Reddit
+    kind: json
+    avatar: data.icon_img
+    displayName: data.subreddit.title
+    bio: data.subreddit.public_description
+    followers: data.total_karma
+  - site: Gitea
+    kind: json
+    avatar: avatar_url
+    displayName: full_name
+    bio: description
+  - site: Keybase
+    kind: json
+    displayName: them.0.profile.full_name
+    bio: them.0.profile.bio
+    location: them.0.profile.location
+  - site: crates.io
+    kind: json
+    displayName: user.login
+  - site: Hugging Face
+    kind: json
+    displayName: user.name
+    avatar: user.avatarUrl
+  - site: Mastodon (mastodon.social)
+    kind: json
+    displayName: display_name
+    avatar: avatar
+    bio: note
+    followers: followers_count
+    following: following_count
+  - site: Bluesky
+    kind: json
+    displayName: displayName
+    avatar: avatar
+    bio: description
+    followers: followersCount
+    following: followsCount
+  - site: Codeberg
+    kind: json
+    displayName: full_name
+    avatar: avatar_url
+    bio: description
+    followers: followers_count
+    following: following_count
+    website: website
+  - site: Dev.to
+    kind: json
+    displayName: name
+    avatar: profile_image
+    bio: summary
+    website: website_url

@@ -1,0 +1,152 @@
+# Silent email registration oracles.
+# Handlers run in-process. None of these send SMTP or password-reset mail.
+oracles:
+  - id: gravatar
+    name: Gravatar
+    category: identity
+    handler: gravatar
+  - id: spotify
+    name: Spotify
+    category: music
+    handler: spotify
+  - id: adobe
+    name: Adobe
+    category: business
+    handler: adobe
+  - id: github
+    name: GitHub
+    category: coding
+    handler: github
+  - id: archive
+    name: Internet Archive
+    category: misc
+    handler: archive
+  - id: duolingo
+    name: Duolingo
+    category: hobby
+    handler: duolingo
+  - id: chess
+    name: Chess.com
+    category: gaming
+    handler: chess
+  - id: pinterest
+    name: Pinterest
+    category: social
+    handler: pinterest
+  - id: tumblr
+    name: Tumblr
+    category: social
+    handler: tumblr
+  - id: imgur
+    name: Imgur
+    category: images
+    handler: imgur
+  - id: wordpress
+    name: WordPress.com
+    category: blog
+    handler: wordpress
+  - id: atlassian
+    name: Atlassian
+    category: tech
+    handler: atlassian
+  - id: dropbox
+    name: Dropbox
+    category: tech
+    handler: dropbox
+  - id: hubspot
+    name: HubSpot
+    category: business
+    handler: hubspot
+  - id: mozilla
+    name: Mozilla
+    category: tech
+    handler: mozilla
+  - id: twitter
+    name: X / Twitter
+    category: social
+    handler: twitter
+  - id: instagram
+    name: Instagram
+    category: social
+    handler: instagram
+  - id: lastfm
+    name: Last.fm
+    category: music
+    handler: lastfm
+  - id: aboutme
+    name: About.me
+    category: social
+    handler: aboutme
+  - id: dockerhub
+    name: Docker Hub
+    category: coding
+    handler: dockerhub
+  - id: notion
+    name: Notion
+    category: tech
+    handler: notion
+  - id: slack
+    name: Slack
+    category: business
+    handler: slack
+  - id: microsoft
+    name: Microsoft
+    category: tech
+    handler: microsoft
+  - id: flickr
+    name: Flickr
+    category: images
+    handler: flickr
+  - id: strava
+    name: Strava
+    category: health
+    handler: strava
+  - id: proton
+    name: Proton
+    category: tech
+    handler: proton
+  - id: hibp
+    name: Have I Been Pwned
+    category: identity
+    handler: hibp
+    optional: true
+  - id: eventbrite
+    name: Eventbrite
+    category: business
+    handler: eventbrite
+  - id: vimeo
+    name: Vimeo
+    category: video
+    handler: vimeo
+  - id: soundcloud
+    name: SoundCloud
+    category: music
+    handler: soundcloud
+  - id: patreon
+    name: Patreon
+    category: art
+    handler: patreon
+  - id: shopify
+    name: Shopify
+    category: shopping
+    handler: shopify
+  - id: bitbucket
+    name: Bitbucket
+    category: coding
+    handler: bitbucket
+  - id: gitlab
+    name: GitLab
+    category: coding
+    handler: gitlab
+  - id: keybase
+    name: Keybase
+    category: identity
+    handler: keybase
+  - id: plurk
+    name: Plurk
+    category: social
+    handler: plurk
+  - id: venmo
+    name: Venmo
+    category: finance
+    handler: venmo
