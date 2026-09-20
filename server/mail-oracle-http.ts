@@ -1,6 +1,6 @@
 import type { LedgerRow } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
-import { fetchImpersonate, impersonateAvailable, shouldImpersonate, tlsMode } from "./curl-impersonate.ts";
+import { fetchImpersonate, impersonateAvailable, isWafHeavy, tlsMode } from "./curl-impersonate.ts";
 import { fetchPublic, type HttpRequest, type HttpResponse } from "./http.ts";
 import { finalizeOracleVerdict, parseMaybeJson } from "./mail-oracle-recover.ts";
 import { classifyOracleBody, type OracleVerdict } from "./oracles.ts";
@@ -52,8 +52,9 @@ function oracleHeaders(req: HttpRequest): Record<string, string> {
 }
 
 /**
- * Mail-oracle fetch: Chrome CORS headers, curl-impersonate first when present,
- * Playwright GET-only retry for challenge pages (no logins).
+ * Mail-oracle fetch: Chrome CORS headers, undici first. curl-impersonate only
+ * for WAF-heavy hosts (or UMBRA_TLS=always). Playwright GET-only retry for
+ * challenge pages (no logins).
  */
 export async function fetchOracle(req: HttpRequest): Promise<HttpResponse> {
   const withHeaders: HttpRequest = {
@@ -62,10 +63,11 @@ export async function fetchOracle(req: HttpRequest): Promise<HttpResponse> {
     headers: oracleHeaders(req),
   };
   const method = (req.method ?? "GET").toUpperCase();
+  const waf = isWafHeavy({ url: req.url });
   const impersonateFirst =
     impersonateAvailable() &&
     tlsMode() !== "off" &&
-    (shouldImpersonate({ protection: ["waf"], url: req.url, oracle: true }) || tlsMode() === "always" || tlsMode() === "auto");
+    (tlsMode() === "always" || waf);
 
   let impersonated: HttpResponse | undefined;
   if (impersonateFirst) {
@@ -78,7 +80,7 @@ export async function fetchOracle(req: HttpRequest): Promise<HttpResponse> {
     impersonateAvailable() &&
     tlsMode() !== "off" &&
     !impersonateFirst &&
-    (res.status === 403 || res.status === 429 || stillChallenged(res))
+    stillChallenged(res)
   ) {
     const retry = await fetchImpersonate(withHeaders);
     if (retry.status > 0) res = retry;

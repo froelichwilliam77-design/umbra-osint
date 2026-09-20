@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { SSE_FLUSH_MS, type ScanProfile } from "../shared/scan-limits.ts";
 import type {
   DetectedKind,
   HostDossier,
@@ -25,7 +26,7 @@ import { PHONE_LEDGER_COUNT, runPhoneScan } from "./phone.ts";
 import { hashFoundAvatars } from "./phash.ts";
 import { buildIdentityGraph, compareScans } from "./graph.ts";
 import { HostPool } from "./concurrency.ts";
-import { clampPerHost, clampWorkers, maxConcurrentScans, scanStaleMs } from "./limits.ts";
+import { clampPerHost, clampWorkers, maxConcurrentScans, resolveScanProfile, scanStaleMs } from "./limits.ts";
 import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
 
@@ -72,7 +73,7 @@ export function subscribe(id: string, fn: (event: ScanEvent) => void): () => voi
   if (!stored) throw new Error("Unknown scan");
   stored.listeners.add(fn);
   fn({ type: "hello", scan: stored.summary });
-  for (const row of stored.rows) fn({ type: "row", row });
+  if (stored.rows.length) fn({ type: "rows", rows: stored.rows });
   if (stored.summary.dossier) fn({ type: "dossier", dossier: stored.summary.dossier });
   if (stored.summary.graph) fn({ type: "graph", graph: stored.summary.graph });
   if (stored.summary.avatarClusters?.length) fn({ type: "clusters", clusters: stored.summary.avatarClusters });
@@ -154,6 +155,7 @@ export async function startScan(input: {
   perHost?: number;
   /** When true (default), cancel any running scan so this one can start. */
   replace?: boolean;
+  profile?: ScanProfile;
 }): Promise<ScanSummary> {
   const replace = input.replace !== false;
   if (replace && runningScanCount() >= maxConcurrentScans()) {
@@ -166,6 +168,7 @@ export async function startScan(input: {
   const includeNsfw = Boolean(input.includeNsfw);
   const workers = clampWorkers(input.workers);
   const perHost = clampPerHost(input.perHost);
+  const profile = resolveScanProfile(input.profile);
 
   let preflight = preflightHandle(normalized, schema.disposable);
   if (kind === "mail") {
@@ -177,14 +180,23 @@ export async function startScan(input: {
     preflight = preflightPhone(normalized);
   }
 
+  const fullHandle = sitesForScan(includeNsfw, { profile: "full" }).length;
   const siteCount =
     kind === "handle"
-      ? sitesForScan(includeNsfw).length
+      ? sitesForScan(includeNsfw, { profile }).length
       : kind === "mail"
         ? schema.oracles.filter((o) => o.handler !== "hibp" || Boolean(process.env.HIBP_API_KEY?.trim())).length + 8
         : kind === "phone"
           ? PHONE_LEDGER_COUNT
           : HOST_LEDGER_COUNT;
+
+  const profileNote =
+    kind === "handle"
+      ? profile === "lean"
+        ? `Lean profile: ${siteCount} curated + high-signal sites (not the full ${fullHandle}-site map). Choose Full for the complete scan.`
+        : `Full profile: ${siteCount} sites. Fast tier runs first, then the rest.`
+      : undefined;
+  if (profileNote) preflight.notes = [...preflight.notes, profileNote];
 
   const id = randomUUID();
   const summary: ScanSummary = {
@@ -198,6 +210,8 @@ export async function startScan(input: {
     progress: { ...emptyProgress(), total: preflight.ok ? siteCount : 0 },
     includeNsfw,
     siteCount,
+    profile,
+    profileNote,
   };
   const stored: StoredScan = { summary, rows: [], listeners: new Set(), pool: null, lastProgressAt: Date.now(), doneEmitted: false };
   scans.set(id, stored);
@@ -208,24 +222,31 @@ export async function startScan(input: {
   }
 
   queueMicrotask(() => {
-    void execute(stored, workers, perHost);
+    void execute(stored, workers, perHost, profile);
   });
   return summary;
 }
 
-async function execute(stored: StoredScan, workers: number, perHost: number): Promise<void> {
-  let sinceProgress = 0;
+async function execute(stored: StoredScan, workers: number, perHost: number, profile: ScanProfile): Promise<void> {
+  let pending: LedgerRow[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flushRows = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (pending.length === 1) emit(stored, { type: "row", row: pending[0] });
+    else if (pending.length > 1) emit(stored, { type: "rows", rows: pending });
+    pending = [];
+    emit(stored, { type: "progress", progress: stored.summary.progress });
+  };
   const onRow = (row: LedgerRow) => {
     if (stored.summary.status === "cancelled") return;
     stored.rows.push(row);
     bump(stored.summary.progress, row.status);
     touchProgress(stored);
-    emit(stored, { type: "row", row });
-    sinceProgress += 1;
-    if (sinceProgress >= 8) {
-      emit(stored, { type: "progress", progress: stored.summary.progress });
-      sinceProgress = 0;
-    }
+    pending.push(row);
+    if (!timer) timer = setTimeout(flushRows, SSE_FLUSH_MS);
   };
   const onPool = (pool: HostPool) => {
     stored.pool = pool;
@@ -233,8 +254,7 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
   const shouldAbort = () => stored.summary.status === "cancelled";
 
   const flushProgress = () => {
-    emit(stored, { type: "progress", progress: stored.summary.progress });
-    sinceProgress = 0;
+    flushRows();
   };
 
   try {
@@ -243,8 +263,10 @@ async function execute(stored: StoredScan, workers: number, perHost: number): Pr
         includeNsfw: stored.summary.includeNsfw,
         workers,
         perHost,
+        profile,
         onRow,
         onPool,
+        onNotice: (message) => emit(stored, { type: "notice", message }),
       });
     } else if (stored.summary.mode === "mail") {
       const dossier = await buildMailDossier(stored.summary.query);

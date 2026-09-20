@@ -74,20 +74,11 @@ export function tlsMode(): "off" | "auto" | "always" {
   return "auto";
 }
 
-export function shouldImpersonate(opts: {
-  protection?: string[];
-  url?: string;
-  force?: boolean;
-  oracle?: boolean;
-}): boolean {
-  if (!impersonateAvailable()) return false;
-  if (isSoftMemoryPressure()) return false;
-  const mode = tlsMode();
-  if (mode === "off") return false;
-  if (mode === "always" || opts.force) return true;
-  // Silent mail oracles are WAF-heavy — prefer Chrome TLS whenever the binary exists.
-  if (opts.oracle && mode === "auto") return true;
-  if (opts.protection?.length) return true;
+const WAF_HEAVY =
+  /cloudflare|akamai|fastly|imperva|incapsula|sucuri|ddos|captcha|waf|perimeter|datadome|kasada|cf-ray/i;
+
+export function isWafHeavy(opts: { protection?: string[]; url?: string }): boolean {
+  if (opts.protection?.some((p) => WAF_HEAVY.test(p))) return true;
   const host = (() => {
     try {
       return new URL(opts.url ?? "").hostname.toLowerCase();
@@ -95,9 +86,25 @@ export function shouldImpersonate(opts: {
       return "";
     }
   })();
-  return /cloudflare|akamai|fastly|imperva|sucuri|cdninstagram|instagram|twitter|x\.com|tiktok|facebook|reddit|linkedin|discord|pinterest|shopify/.test(
-    host,
-  );
+  return WAF_HEAVY.test(host);
+}
+
+export function shouldImpersonate(opts: {
+  protection?: string[];
+  url?: string;
+  force?: boolean;
+  oracle?: boolean;
+}): boolean {
+  if (!impersonateAvailable()) return false;
+  if (impersonateMax() <= 0) return false;
+  if (isSoftMemoryPressure()) return false;
+  const mode = tlsMode();
+  if (mode === "off") return false;
+  if (opts.force) return true;
+  if (mode === "always") return true;
+  // Prefer undici unless the host is WAF-heavy. Mail oracles and generic
+  // protection[] lists used to spawn curl children on every probe.
+  return isWafHeavy(opts);
 }
 
 function parseHeaderBlob(raw: string): { status: number; headers: Record<string, string>; location?: string } {
@@ -181,10 +188,21 @@ function skipped(req: HttpRequest, started: number, error: string): HttpResponse
 
 export async function fetchImpersonate(req: HttpRequest): Promise<HttpResponse> {
   const started = Date.now();
+  if (impersonateMax() <= 0) {
+    return skipped(req, started, "curl-impersonate disabled (UMBRA_CURL_MAX=0)");
+  }
   if (isSoftMemoryPressure()) {
     return skipped(req, started, "curl-impersonate skipped: memory pressure");
   }
-  return getCurlGate()(() => fetchImpersonateInner(req, started));
+  const cap = Math.max(1, impersonateMax());
+  if (liveChildren.size >= cap) {
+    return skipped(req, started, "curl-impersonate at child-process cap");
+  }
+  const gate = getCurlGate();
+  if (gate.activeCount >= cap) {
+    return skipped(req, started, "curl-impersonate at concurrency cap");
+  }
+  return gate(() => fetchImpersonateInner(req, started));
 }
 
 async function fetchImpersonateInner(req: HttpRequest, started: number): Promise<HttpResponse> {
@@ -287,7 +305,7 @@ export function impersonateHealth(): {
     tlsBinary: bin,
     tlsMode: tlsMode(),
     tlsNote: bin
-      ? `curl-impersonate via ${bin} (Chrome TLS + HTTP/2). Mode=${tlsMode()}. Max ${impersonateMax()} concurrent children. Protected/WAF hosts use it automatically; set UMBRA_TLS=always to force.`
+      ? `curl-impersonate via ${bin} (Chrome TLS + HTTP/2). Mode=${tlsMode()}. Max ${impersonateMax()} concurrent children. Used only for WAF-heavy hosts; undici otherwise.`
       : "curl-impersonate not on PATH. Node/undici HTTP/2 + Chrome headers still run. Install curl-impersonate or rebuild the Docker image (bundles curl_chrome*). Playwright stays off unless UMBRA_PLAYWRIGHT=1 (not for 1 GB Railway).",
   };
 }

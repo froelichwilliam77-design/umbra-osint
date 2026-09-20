@@ -7,4 +7,6 @@ healthcheckPath = "/api/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
 # Single replica. Railway hobby/free is 1 GB RAM — Playwright + 24 workers OOMs.
-# Image defaults: UMBRA_PLAYWRIGHT=0, NODE_OPTIONS=--max-old-space-size=512.
+# Image defaults: UMBRA_PROFILE=lean, UMBRA_WORKERS=4, UMBRA_CURL_MAX=1,
+# UMBRA_BODY_LIMIT=48000, RSS 450/600, NODE_OPTIONS=--max-old-space-size=384,
+# UMBRA_PLAYWRIGHT=0.

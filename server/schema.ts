@@ -2,7 +2,9 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { FAST_TIER_SIZE, LEAN_SITE_CAP, type ScanProfile } from "../shared/scan-limits.ts";
 import type { SchemaStats } from "../shared/types.ts";
+import { fastTierSize, leanSiteCap } from "./limits.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -175,13 +177,52 @@ export function schemaStats(): SchemaStats {
     wmnSites: s.wmnSites,
     sherlockSites: s.sherlockSites,
     curatedSites: s.curatedSites,
+    leanSites: sitesForScan(false, { profile: "lean" }).length,
   };
 }
 
-export function sitesForScan(includeNsfw: boolean): WmnSite[] {
-  const sites = loadSchema().sites;
-  if (includeNsfw) return sites;
-  return sites.filter((s) => (s.cat || "").toLowerCase() !== "xx nsfw xx");
+const HIGH_SIGNAL =
+  /\b(github|gitlab|bitbucket|codeberg|sourcehut|stackoverflow|stack overflow|hacker news|keybase|wikipedia|twitter|instagram|reddit|youtube|linkedin|facebook|tiktok|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|snapchat|steam|spotify|soundcloud|npm|crates|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|behance|dribbble|vimeo|vkontakte|pypi|rubygems|packagist)\b/i;
+
+export function isClearnetSite(site: WmnSite): boolean {
+  return !/\.onion\b/i.test(site.uri_check || "");
+}
+
+export function siteRank(site: WmnSite): number {
+  let score = 0;
+  if (site.source === "curated") score += 100;
+  const cat = (site.cat || "").toLowerCase();
+  if (cat === "social") score += 40;
+  else if (cat === "coding") score += 38;
+  else if (cat === "tech") score += 30;
+  else if (cat === "business") score += 16;
+  else if (cat === "xx nsfw xx") score -= 80;
+  if (HIGH_SIGNAL.test(site.name) || HIGH_SIGNAL.test(site.uri_check || "")) score += 50;
+  if (!site.protection?.length) score += 8;
+  if (/\/api[\.\/]|api\./i.test(site.uri_check || "")) score += 12;
+  return score;
+}
+
+export function rankSites(sites: WmnSite[]): WmnSite[] {
+  return [...sites].sort((a, b) => siteRank(b) - siteRank(a) || a.name.localeCompare(b.name));
+}
+
+export function splitFastTier(sites: WmnSite[], n?: number): { fast: WmnSite[]; rest: WmnSite[] } {
+  const cap = n ?? fastTierSize() ?? FAST_TIER_SIZE;
+  return { fast: sites.slice(0, cap), rest: sites.slice(cap) };
+}
+
+export function sitesForScan(
+  includeNsfw: boolean,
+  opts?: { profile?: ScanProfile; cap?: number },
+): WmnSite[] {
+  let sites = loadSchema().sites.filter(isClearnetSite);
+  if (!includeNsfw) sites = sites.filter((s) => (s.cat || "").toLowerCase() !== "xx nsfw xx");
+  const ranked = rankSites(sites);
+  const profile = opts?.profile ?? "full";
+  if (profile !== "lean") return ranked;
+  const cap = opts?.cap ?? leanSiteCap() ?? LEAN_SITE_CAP;
+  return ranked.slice(0, cap);
 }
 
 export function categoryOf(site: WmnSite): string {

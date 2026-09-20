@@ -22,4 +22,15 @@ describe("schema integrity", () => {
     expect(all.length).toBeGreaterThanOrEqual(clean.length);
     expect(clean.every((s) => (s.cat || "").toLowerCase() !== "xx nsfw xx")).toBe(true);
   });
+
+  it("lean profile caps to curated + high-signal subset", () => {
+    const full = sitesForScan(false, { profile: "full" });
+    const lean = sitesForScan(false, { profile: "lean" });
+    expect(lean.length).toBeLessThanOrEqual(200);
+    expect(lean.length).toBeGreaterThanOrEqual(50);
+    expect(full.length).toBeGreaterThan(lean.length);
+    expect(schemaStats().leanSites).toBe(lean.length);
+    const names = lean.map((s) => s.name.toLowerCase());
+    expect(names.some((n) => n.includes("github"))).toBe(true);
+  });
 });

@@ -58,7 +58,15 @@ Live console screenshots:
 
 Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, listen on `$PORT`.
 
-**1 GB hobby / free plan:** keep Playwright **off**. A handle scan with `UMBRA_PLAYWRIGHT=1` (max 20) plus curl-impersonate peaked at **~1.34 GB RSS** and was OOM-killed mid-scan. The image now defaults to `UMBRA_PLAYWRIGHT=0`, `UMBRA_PLAYWRIGHT_MAX=1`, `NODE_OPTIONS=--max-old-space-size=512`, 8 global workers / 1 per host, and at most 3 curl-impersonate children. Target: a full mail + handle scan stays under **~700 MB RSS** without restarting.
+**1 GB hobby / free plan:** keep Playwright **off**. A full 1000-site handle scan with curl-impersonate used to peak at **~1.34 GB RSS** and freeze the phone UI. Production now defaults to:
+
+- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites (toggle **Full** in the UI for the complete map; Full still runs a fast tier of ~150 first)
+- `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=1`, `UMBRA_BODY_LIMIT=48000`
+- RSS cancel at **450 / 600 MB** (`UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB`)
+- `NODE_OPTIONS=--max-old-space-size=384`, Playwright off
+- SSE row events batched (~150 ms); the ledger virtualizes ~40 visible rows so a phone stays responsive
+
+Target: a mail scan and a lean handle scan complete on 1 GB without an OOM restart.
 
 1. New project on [Railway](https://railway.app) → **Deploy from GitHub** → `froelichwilliam77-design/umbra-osint`.
 2. `railway.toml` already selects the Dockerfile and health-checks `/api/health`.
@@ -71,7 +79,7 @@ No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`
 PORT=43180 HOST=0.0.0.0 npm start
 ```
 
-The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process for protected/WAF hosts. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service. Concurrent curl children are capped (`UMBRA_CURL_MAX`, default 3). Response bodies are streamed and truncated (`UMBRA_BODY_LIMIT`, default 96 KB). Under memory pressure the scan aborts cleanly (`cancelled`) instead of death-spiraling into an OOM restart.
+The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process **only for WAF-heavy hosts**. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service. Concurrent curl children are hard-capped (`UMBRA_CURL_MAX`, default 1). Response bodies are streamed and truncated (`UMBRA_BODY_LIMIT`, default 48 KB). Under memory pressure the scan aborts cleanly (`cancelled`) instead of death-spiraling into an OOM restart.
 
 ## PWA install (phone)
 
@@ -117,7 +125,7 @@ Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 ### Anti-bot (what actually ships)
 
 - Chrome-matched headers, UA rotation, HTTP/2 via undici, per-host workers, jitter, `Retry-After` on 429/503.
-- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it for `protection[]` / known WAF hosts, **silent mail oracles**, and retries a WAF-blocked undici probe. `UMBRA_TLS=always` forces it; `off` disables it. Concurrent children are capped (`UMBRA_CURL_MAX`, default 3).
+- **curl-impersonate** (Chrome TLS/JA3) when the binary is present (Docker image installs `curl_chrome146`). `UMBRA_TLS=auto` (default) uses it **only for WAF-heavy hosts** (Cloudflare/Akamai/…). Everything else stays on undici. `UMBRA_TLS=always` forces it; `off` disables it. Concurrent children are hard-capped (`UMBRA_CURL_MAX`, default **1**).
 - **Playwright** is optional and **off by default** (Docker/Railway do not force it on). `UMBRA_PLAYWRIGHT=1` plus `npx playwright install chromium` retries blocked/escalate Cloudflare/CAPTCHA rows with an authorized public **GET** only (no logins, no credential stuffing, SSRF still applies). Hard caps: **one Chromium at a time**, killed after each navigation, `UMBRA_PLAYWRIGHT_MAX` default **1**. Do not enable on Railway 1 GB.
 
 Local without Docker: TLS impersonation is **partial** until `curl-impersonate` is on `PATH` or `UMBRA_CURL_IMPERSONATE` points at `curl_chrome146`. Check `GET /api/health` (`tlsImpersonation`, `tlsBinary`, `tlsNote`).
@@ -152,7 +160,7 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 
 ## API
 
-- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost? }`
+- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile? }` (`profile`: `lean` | `full`)
 - `GET /api/scans` in-memory summaries (for compare)
 - `GET /api/scans/:id` snapshot + graph
 - `GET /api/scans/:id/events` SSE ledger (includes `graph` / `clusters`)
@@ -174,18 +182,21 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
 | `HIBP_API_KEY` | unset | Optional breach oracle (skipped silently if unset) |
-| `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate |
+| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first) |
+| `UMBRA_LEAN_SITES` | `200` | Cap for lean handle scans |
+| `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |
+| `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate. `auto` uses it only on WAF-heavy hosts |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
-| `UMBRA_CURL_MAX` | `3` | Max concurrent curl-impersonate children |
-| `UMBRA_WORKERS` | `8` | Default global scan concurrency (max 16) |
+| `UMBRA_CURL_MAX` | `1` | Max concurrent curl-impersonate children (hard cap 2) |
+| `UMBRA_WORKERS` | `4` | Default global scan concurrency (hard cap 8) |
 | `UMBRA_PER_HOST` | `1` | Default per-host concurrency (max 2) |
-| `UMBRA_BODY_LIMIT` | `96000` | Streamed response body cap (bytes) |
+| `UMBRA_BODY_LIMIT` | `48000` | Streamed response body cap (bytes) |
 | `UMBRA_PLAYWRIGHT` | `0` (unset = off) | `1` to escalate blocked/CAPTCHA GETs with Chromium. **Off on 1 GB Railway.** |
 | `UMBRA_PLAYWRIGHT_MAX` | `1` | Max Playwright retries per handle scan (serial, one browser) |
 | `UMBRA_SCAN_STALE_MS` | `600000` (10m) | Auto-cancel a scan that makes no progress |
 | `UMBRA_MAX_SCANS` | `1` | Concurrent in-flight scans |
-| `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | `640` / `800` | Skip extra TLS/Playwright at soft; abort scan at hard |
-| `NODE_OPTIONS` | `--max-old-space-size=512` in Docker | V8 heap cap so RSS stays under the 1 GB cgroup |
+| `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | `450` / `600` | Skip extra TLS/Playwright at soft; abort scan at hard (`UMBRA_RSS_*` aliases work too) |
+| `NODE_OPTIONS` | `--max-old-space-size=384` in Docker | V8 heap cap so RSS stays under the 1 GB cgroup |
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
 | `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
