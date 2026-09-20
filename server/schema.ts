@@ -22,6 +22,8 @@ export interface WmnSite {
   strip_bad_char?: string;
   valid?: boolean;
   username_regex?: string;
+  source?: string;
+  errorUrl?: string;
 }
 
 export interface ExtractorSpec {
@@ -51,6 +53,9 @@ export interface SchemaBundle {
   disposable: Set<string>;
   wmnImportedAt?: string;
   wmnSource: string;
+  wmnSites: number;
+  sherlockSites: number;
+  curatedSites: number;
 }
 
 function loadJson<T>(rel: string): T {
@@ -83,10 +88,21 @@ export function loadSchema(): SchemaBundle {
   for (const site of wmn.sites ?? []) {
     if (site.valid === false) continue;
     if (!site.uri_check || !site.name) continue;
-    byName.set(site.name, site);
+    byName.set(site.name, { ...site, source: site.source ?? "wmn" });
+  }
+  let sherlock: { sites?: WmnSite[] } = { sites: [] };
+  try {
+    sherlock = loadJson<{ sites?: WmnSite[] }>("schema/sherlock-overlay.json");
+  } catch {
+    sherlock = { sites: [] };
+  }
+  for (const site of sherlock.sites ?? []) {
+    if (!site?.name || !site.uri_check) continue;
+    if (byName.has(site.name)) continue;
+    byName.set(site.name, { ...site, source: site.source ?? "sherlock" });
   }
   for (const site of curated.sites ?? []) {
-    byName.set(site.name, site);
+    byName.set(site.name, { ...site, source: "curated" });
   }
   for (const ov of curated.overrides ?? []) {
     const cur = byName.get(ov.name);
@@ -107,7 +123,10 @@ export function loadSchema(): SchemaBundle {
     oracles: oraclesDoc.oracles ?? [],
     disposable,
     wmnImportedAt,
-    wmnSource: "schema/wmn-data.json (WhatsMyName)",
+    wmnSource: "schema/wmn-data.json (WhatsMyName) + schema/sherlock-overlay.json",
+    wmnSites: (wmn.sites ?? []).length,
+    sherlockSites: (sherlock.sites ?? []).length,
+    curatedSites: (curated.sites ?? []).length,
   };
   return cache;
 }
@@ -150,6 +169,9 @@ export function schemaStats(): SchemaStats {
     disposableDomains: s.disposable.size,
     wmnImportedAt: s.wmnImportedAt,
     wmnSource: s.wmnSource,
+    wmnSites: s.wmnSites,
+    sherlockSites: s.sherlockSites,
+    curatedSites: s.curatedSites,
   };
 }
 

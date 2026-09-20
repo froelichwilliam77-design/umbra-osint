@@ -5,9 +5,12 @@ import {
   Fingerprint,
   Globe,
   Mail,
+  Phone,
   Radar,
   Search,
+  Share2,
   ShieldAlert,
+  Smartphone,
   UserRound,
   X,
   ExternalLink,
@@ -15,11 +18,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ComparePanel, GraphPanel } from "@/components/GraphPanel";
 import type {
   HostDossier,
+  IdentityGraph,
   LedgerRow,
   LedgerStatus,
   MailDossier,
+  PhoneDossier,
+  ScanCompare,
   ScanEvent,
   ScanMode,
   ScanProgress,
@@ -56,6 +63,29 @@ function isMail(d: ScanSummary["dossier"]): d is MailDossier {
 function isHost(d: ScanSummary["dossier"]): d is HostDossier {
   return Boolean(d && "domain" in d && !("email" in d));
 }
+function isPhone(d: ScanSummary["dossier"]): d is PhoneDossier {
+  return Boolean(d && "e164" in d);
+}
+
+type SavedCase = {
+  id: string;
+  query: string;
+  mode: ScanSummary["mode"];
+  savedAt: string;
+  found: number;
+};
+
+function loadCases(): SavedCase[] {
+  try {
+    return JSON.parse(localStorage.getItem("umbra.cases") || "[]") as SavedCase[];
+  } catch {
+    return [];
+  }
+}
+
+function storeCases(cases: SavedCase[]): void {
+  localStorage.setItem("umbra.cases", JSON.stringify(cases.slice(0, 8)));
+}
 
 export default function App() {
   const [accepted, setAccepted] = useState(() => localStorage.getItem("umbra.ok") === "1");
@@ -72,6 +102,10 @@ export default function App() {
   const [schema, setSchema] = useState<SchemaStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [graph, setGraph] = useState<IdentityGraph | null>(null);
+  const [cases, setCases] = useState<SavedCase[]>(() => loadCases());
+  const [compare, setCompare] = useState<ScanCompare | null>(null);
+  const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const pendingRef = useRef<LedgerRow[]>([]);
   const flushTimer = useRef<number | undefined>(undefined);
@@ -83,10 +117,22 @@ export default function App() {
       .catch(() => setSchema(null));
   }, []);
 
-  useEffect(() => () => {
-    sourceRef.current?.close();
-    if (flushTimer.current) window.clearTimeout(flushTimer.current);
+  useEffect(() => {
+    const onInstall = (e: Event) => {
+      e.preventDefault();
+      setInstallEvent(e as unknown as { prompt: () => Promise<unknown> });
+    };
+    window.addEventListener("beforeinstallprompt", onInstall);
+    return () => window.removeEventListener("beforeinstallprompt", onInstall);
   }, []);
+
+  useEffect(
+    () => () => {
+      sourceRef.current?.close();
+      if (flushTimer.current) window.clearTimeout(flushTimer.current);
+    },
+    [],
+  );
 
   const flushRows = () => {
     const batch = pendingRef.current;
@@ -118,6 +164,8 @@ export default function App() {
     setFilter("found");
     setCategory("all");
     setSearch("");
+    setGraph(null);
+    setCompare(null);
     sourceRef.current?.close();
     try {
       const res = await fetch("/api/scans", {
@@ -150,6 +198,10 @@ export default function App() {
         if (event.type === "progress") {
           setScan((s) => (s ? { ...s, progress: event.progress } : s));
         }
+        if (event.type === "graph") setGraph(event.graph);
+        if (event.type === "clusters") {
+          setScan((s) => (s ? { ...s, avatarClusters: event.clusters } : s));
+        }
         if (event.type === "error") setError(event.message);
         if (event.type === "done") {
           setBusy(false);
@@ -171,6 +223,36 @@ export default function App() {
     setQuery(handle);
     setMode("handle");
     void start({ query: handle, mode: "handle" });
+  };
+
+  const pivotTo = (q: string, m: ScanMode) => {
+    setQuery(q);
+    setMode(m);
+    void start({ query: q, mode: m });
+  };
+
+  const saveCase = () => {
+    if (!scan) return;
+    const next: SavedCase = {
+      id: scan.id,
+      query: scan.query,
+      mode: scan.mode,
+      savedAt: new Date().toISOString(),
+      found: scan.progress.found,
+    };
+    const merged = [next, ...cases.filter((c) => c.id !== next.id)].slice(0, 8);
+    setCases(merged);
+    storeCases(merged);
+  };
+
+  const runCompare = async (otherId: string) => {
+    if (!scan) return;
+    const res = await fetch(`/api/scans/compare?a=${encodeURIComponent(scan.id)}&b=${encodeURIComponent(otherId)}`);
+    if (!res.ok) {
+      setError("Compare needs both scans still in this browser session (in-memory). Save, then run the second recon before leaving.");
+      return;
+    }
+    setCompare((await res.json()) as ScanCompare);
   };
 
   const cats = useMemo(() => {
@@ -219,8 +301,8 @@ export default function App() {
         <h1 className="mt-3 text-3xl font-medium">Authorized use only</h1>
         <p className="mt-4 text-fog-300">{AUTHORIZED_USE}</p>
         <p className="mt-3 text-sm text-fog-500">
-          Handle, mail, and host modules query public endpoints. Private/loopback fetches are blocked. Silent
-          mail oracles never SMTP the subject.
+          Handle, mail, host, and phone modules query public endpoints. Private/loopback fetches are blocked. Silent
+          mail oracles never SMTP the subject. Phone mode never sends SMS.
         </p>
         <Button
           className="mt-8 w-fit"
@@ -247,7 +329,7 @@ export default function App() {
             </div>
             <p className="mt-1 max-w-2xl text-xs text-fog-500">
               {schema
-                ? `${schema.handleSites} handle sites · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains`
+                ? `${schema.handleSites} handle sites · ${schema.oracles} mail oracles · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
                 : "Loading schema…"}
             </p>
           </div>
@@ -256,9 +338,51 @@ export default function App() {
             <span className="max-w-md leading-snug">{AUTHORIZED_USE}</span>
           </div>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {installEvent && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="tap-lg"
+              onClick={() => {
+                void installEvent.prompt();
+                setInstallEvent(null);
+              }}
+            >
+              <Smartphone className="h-3.5 w-3.5" />
+              Add to Home Screen
+            </Button>
+          )}
+          {scan && (
+            <Button size="sm" variant="outline" className="tap-lg" onClick={saveCase}>
+              Save case
+            </Button>
+          )}
+          {cases.length > 0 && scan && (
+            <label className="flex items-center gap-2 font-mono text-[11px] text-fog-500">
+              Compare with
+              <select
+                className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 text-fog-100"
+                defaultValue=""
+                onChange={(e) => {
+                  if (e.target.value) void runCompare(e.target.value);
+                }}
+              >
+                <option value="">saved run…</option>
+                {cases
+                  .filter((c) => c.id !== scan.id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.mode} {c.query} ({c.found} found)
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+        </div>
       </header>
 
-      <section className="rounded-xl border border-ink-600 bg-ink-900/80 p-3 shadow-panel">
+      <section className="sticky top-[4.5rem] z-10 rounded-xl border border-ink-600 bg-ink-900/95 p-3 shadow-panel backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
@@ -266,12 +390,13 @@ export default function App() {
               ["handle", "Handle"],
               ["mail", "Mail"],
               ["host", "Host"],
+              ["phone", "Phone"],
             ] as const
           ).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setMode(id)}
-              className={`rounded-full border px-3 py-1 font-mono text-xs uppercase tracking-wide ${
+              className={`tap-lg rounded-full border px-4 py-2 font-mono text-xs uppercase tracking-wide ${
                 mode === id
                   ? "border-accent bg-accent/15 text-fog-100"
                   : "border-ink-600 text-fog-500 hover:border-fog-500"
@@ -280,7 +405,7 @@ export default function App() {
               {label}
             </button>
           ))}
-          <label className="ml-auto flex items-center gap-2 font-mono text-[11px] text-fog-500">
+          <label className="ml-auto flex min-h-11 items-center gap-2 font-mono text-[11px] text-fog-500">
             <input
               type="checkbox"
               checked={includeNsfw}
@@ -301,12 +426,13 @@ export default function App() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="octocat · press@github.com · github.com"
-              className="pl-9"
+              placeholder="octocat · press@github.com · github.com · +14155552671"
+              className="tap-lg pl-9"
               autoFocus
+              inputMode={mode === "phone" ? "tel" : "text"}
             />
           </div>
-          <Button type="submit" size="lg" disabled={busy} className="w-full sm:w-auto">
+          <Button type="submit" size="lg" disabled={busy} className="tap-lg w-full sm:w-auto">
             {busy ? "Recon…" : "Recon"}
           </Button>
         </form>
@@ -375,8 +501,13 @@ export default function App() {
         </div>
       )}
 
-      {scan && isMail(scan.dossier) && <MailCards dossier={scan.dossier} onPivot={pivotHandle} />}
+      {scan && isMail(scan.dossier) && (
+        <MailCards dossier={scan.dossier} onPivot={pivotHandle} onHost={(h) => pivotTo(h, "host")} />
+      )}
       {scan && isHost(scan.dossier) && <HostCards dossier={scan.dossier} />}
+      {scan && isPhone(scan.dossier) && <PhoneCards dossier={scan.dossier} />}
+      <GraphPanel graph={graph} onPivot={pivotTo} />
+      <ComparePanel compare={compare} onClose={() => setCompare(null)} />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="rounded-xl border border-ink-600 bg-ink-900/70">
@@ -392,7 +523,7 @@ export default function App() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="site, url, reason, name"
-              className="h-8 min-w-[10rem] flex-1 md:ml-auto md:max-w-xs"
+              className="tap-lg h-11 min-w-[10rem] flex-1 md:ml-auto md:max-w-xs"
             />
             {scan && (
               <div className="flex flex-wrap gap-1">
@@ -423,7 +554,7 @@ export default function App() {
                 {rows.length === 0
                   ? busy
                     ? "Waiting for the first classified row…"
-                    : "Run a handle, mail, or host recon to fill the ledger."
+                    : "Run a handle, mail, host, or phone recon to fill the ledger."
                   : filter === "found"
                     ? "No found rows yet — blocked/miss stay out of this view. Tap All or Hits."
                     : "No rows match this filter."}
@@ -518,6 +649,8 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
       </div>
       {selected.finalUrl && <Field label="Final URL" value={selected.finalUrl} />}
       {selected.protection?.length ? <Field label="Protection" value={selected.protection.join(", ")} /> : null}
+      {selected.via && <Field label="Via" value={selected.via} />}
+      {selected.phash && <Field label="Avatar pHash" value={selected.phash} />}
       {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (
         <div className="rounded-lg border border-ink-600 bg-ink-950 p-3">
@@ -589,7 +722,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${
+      className={`tap-lg shrink-0 rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase ${
         active ? "border-accent text-fog-100" : "border-ink-600 text-fog-500"
       }`}
     >
@@ -613,7 +746,15 @@ function Field({ label, value, href }: { label: string; value: string; href?: st
   );
 }
 
-function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handle: string) => void }) {
+function MailCards({
+  dossier,
+  onPivot,
+  onHost,
+}: {
+  dossier: MailDossier;
+  onPivot: (handle: string) => void;
+  onHost: (host: string) => void;
+}) {
   const pivots = dossier.pivots.length ? dossier.pivots : [dossier.localPartAnalysis.base];
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -642,11 +783,15 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
         )}
         <div className="mt-3 flex flex-wrap gap-2">
           {pivots.slice(0, 6).map((p) => (
-            <Button key={p} size="sm" variant="outline" onClick={() => onPivot(p)}>
+            <Button key={p} size="sm" variant="outline" className="tap-lg" onClick={() => onPivot(p)}>
               <UserRound className="h-3.5 w-3.5" />
               {p}
             </Button>
           ))}
+          <Button size="sm" variant="outline" className="tap-lg" onClick={() => onHost(dossier.domain)}>
+            <Globe className="h-3.5 w-3.5" />
+            {dossier.domain}
+          </Button>
         </div>
       </Card>
       <Card icon={<Globe className="h-4 w-4" />} title="MX / auth">
@@ -725,6 +870,49 @@ function MailCards({ dossier, onPivot }: { dossier: MailDossier; onPivot: (handl
             ))}
           </div>
         ) : null}
+      </Card>
+    </div>
+  );
+}
+
+function PhoneCards({ dossier }: { dossier: PhoneDossier }) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Card icon={<Phone className="h-4 w-4" />} title="E.164">
+        <p className="font-mono text-sm">{dossier.e164 ?? dossier.raw}</p>
+        <p className="mt-1 text-xs text-fog-500">
+          {dossier.valid ? "valid" : dossier.possible ? "possible" : "invalid"}
+          {dossier.internationalFormat ? ` · ${dossier.internationalFormat}` : ""}
+        </p>
+        {dossier.nationalFormat && <p className="font-mono text-[11px] text-fog-500">{dossier.nationalFormat}</p>}
+      </Card>
+      <Card icon={<Globe className="h-4 w-4" />} title="Region / type">
+        <p className="text-sm">{dossier.regionHint ?? dossier.country ?? "unknown region"}</p>
+        <p className="mt-1 font-mono text-[11px] text-fog-500">
+          {dossier.type ?? "type unknown"}
+          {dossier.countryCallingCode ? ` · +${dossier.countryCallingCode}` : ""}
+        </p>
+      </Card>
+      <Card icon={<Fingerprint className="h-4 w-4" />} title="Carrier hint">
+        <p className="text-sm">{dossier.carrierHint ?? "No live carrier lookup"}</p>
+        {dossier.lookups.map((l) => (
+          <p key={l.source} className="mt-1 font-mono text-[11px] text-fog-500">
+            {l.source}: {l.detail ?? l.status}
+          </p>
+        ))}
+      </Card>
+      <Card icon={<Share2 className="h-4 w-4" />} title="Public links">
+        {dossier.e164 && (
+          <a
+            className="text-sm text-accent hover:underline"
+            href={`https://duckduckgo.com/?q=${encodeURIComponent(`"${dossier.e164}"`)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            DuckDuckGo “{dossier.e164}”
+          </a>
+        )}
+        <p className="mt-2 text-[11px] text-fog-500">No SMS. Optional Twilio/Numverify keys add carrier names.</p>
       </Card>
     </div>
   );

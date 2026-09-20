@@ -1,5 +1,5 @@
-export type ScanMode = "auto" | "handle" | "mail" | "host";
-export type DetectedKind = "handle" | "mail" | "host";
+export type ScanMode = "auto" | "handle" | "mail" | "host" | "phone";
+export type DetectedKind = "handle" | "mail" | "host" | "phone";
 
 export type LedgerStatus =
   | "found"
@@ -35,6 +35,8 @@ export type LedgerCategory =
   | "dns"
   | "rdap"
   | "tls"
+  | "phone"
+  | "graph"
   | "nsfw";
 
 export interface MetadataCard {
@@ -46,6 +48,7 @@ export interface MetadataCard {
   location?: string;
   website?: string;
   extra?: Record<string, string | number | boolean | null>;
+  phash?: string;
 }
 
 export interface LedgerRow {
@@ -67,6 +70,8 @@ export interface LedgerRow {
   latencyMs?: number;
   metadata?: MetadataCard;
   protection?: string[];
+  phash?: string;
+  via?: "undici" | "curl-impersonate" | "playwright";
 }
 
 export interface PreflightResult {
@@ -211,6 +216,60 @@ export interface HostDossier {
   bimi?: { present: boolean; raw?: string };
 }
 
+export interface PhoneDossier {
+  raw: string;
+  e164?: string;
+  valid: boolean;
+  possible: boolean;
+  country?: string;
+  countryCallingCode?: string;
+  nationalNumber?: string;
+  nationalFormat?: string;
+  internationalFormat?: string;
+  rfc3966?: string;
+  type?: string;
+  regionHint?: string;
+  carrierHint?: string;
+  timezones: string[];
+  pivots: string[];
+  lookups: { source: string; status: "found" | "miss" | "skipped" | "blocked" | "error"; detail?: string }[];
+}
+
+export interface GraphNode {
+  id: string;
+  kind: "handle" | "mail" | "host" | "phone" | "profile" | "avatar" | "oracle";
+  label: string;
+  status?: LedgerStatus;
+  url?: string;
+  pivot?: { query: string; mode: ScanMode };
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  rel: string;
+}
+
+export interface IdentityGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface AvatarCluster {
+  phash: string;
+  sites: string[];
+  avatarUrls: string[];
+  distanceMax: number;
+}
+
+export interface ScanCompare {
+  a: { id: string; query: string; mode: DetectedKind; found: number };
+  b: { id: string; query: string; mode: DetectedKind; found: number };
+  onlyA: { site: string; url: string; status: LedgerStatus }[];
+  onlyB: { site: string; url: string; status: LedgerStatus }[];
+  both: { site: string; urlA: string; urlB: string }[];
+}
+
 export interface ScanProgress {
   done: number;
   total: number;
@@ -232,7 +291,9 @@ export interface ScanSummary {
   status: "running" | "done" | "cancelled";
   preflight: PreflightResult;
   progress: ScanProgress;
-  dossier?: MailDossier | HostDossier;
+  dossier?: MailDossier | HostDossier | PhoneDossier;
+  graph?: IdentityGraph;
+  avatarClusters?: AvatarCluster[];
   includeNsfw: boolean;
   siteCount: number;
 }
@@ -240,7 +301,9 @@ export interface ScanSummary {
 export type ScanEvent =
   | { type: "hello"; scan: ScanSummary }
   | { type: "row"; row: LedgerRow }
-  | { type: "dossier"; dossier: MailDossier | HostDossier }
+  | { type: "dossier"; dossier: MailDossier | HostDossier | PhoneDossier }
+  | { type: "graph"; graph: IdentityGraph }
+  | { type: "clusters"; clusters: AvatarCluster[] }
   | { type: "progress"; progress: ScanProgress }
   | { type: "done"; scan: ScanSummary }
   | { type: "error"; message: string };
@@ -252,4 +315,7 @@ export interface SchemaStats {
   disposableDomains: number;
   wmnImportedAt?: string;
   wmnSource?: string;
+  wmnSites?: number;
+  sherlockSites?: number;
+  curatedSites?: number;
 }

@@ -5,6 +5,7 @@ import {
   ROLE_LOCAL_PARTS,
 } from "../shared/constants.ts";
 import type { DetectedKind, PreflightResult, ScanMode } from "../shared/types.ts";
+import { looksLikePhone, normalizePhone, preflightPhone as phonePreflight } from "./phone.ts";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -37,6 +38,7 @@ export function looksLikeDomain(raw: string): boolean {
 export function detectKind(raw: string): DetectedKind {
   const q = raw.trim();
   if (looksLikeEmail(q)) return "mail";
+  if (looksLikePhone(q)) return "phone";
   const hostish = q.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
   if (hostish.includes(".") && looksLikeDomain(q)) return "host";
   return "handle";
@@ -50,6 +52,7 @@ export function resolveMode(raw: string, mode: ScanMode): DetectedKind {
 export function normalizeQuery(raw: string, kind: DetectedKind): string {
   const q = raw.trim();
   if (kind === "mail") return q.toLowerCase();
+  if (kind === "phone") return normalizePhone(q);
   if (kind === "host") {
     return q
       .replace(/^https?:\/\//i, "")
@@ -233,3 +236,5 @@ export function preflightHost(domain: string): PreflightResult {
     errors,
   };
 }
+
+export { phonePreflight as preflightPhone };

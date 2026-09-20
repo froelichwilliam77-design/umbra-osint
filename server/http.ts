@@ -11,6 +11,8 @@ export interface HttpRequest {
   timeoutMs?: number;
   redirect?: "manual" | "follow";
   accept?: string;
+  impersonate?: boolean;
+  binary?: boolean;
 }
 
 export interface HttpResponse {
@@ -24,6 +26,8 @@ export interface HttpResponse {
   latencyMs: number;
   error?: string;
   ssrf?: boolean;
+  via?: "undici" | "curl-impersonate" | "playwright";
+  bytes?: Buffer;
 }
 
 const DEFAULT_TIMEOUT = 12_000;
@@ -47,6 +51,8 @@ function defaultHeaders(url: string, accept?: string): Record<string, string> {
     "Sec-CH-UA": ua.secChUa,
     "Sec-CH-UA-Mobile": "?0",
     "Sec-CH-UA-Platform": `"${ua.platform}"`,
+    "sec-ch-ua-full-version-list": ua.secChUa,
+    Priority: "u=0, i",
     Referer: `${origin}/`,
   };
 }
@@ -68,8 +74,10 @@ function createDispatcher(): Dispatcher {
   }
   return new Agent({
     allowH2: true,
-    keepAliveTimeout: 10_000,
-    connections: 64,
+    keepAliveTimeout: 12_000,
+    keepAliveMaxTimeout: 30_000,
+    connections: 72,
+    pipelining: 1,
     connect: { timeout: 8_000 },
   });
 }
@@ -138,6 +146,7 @@ export async function fetchPublic(req: HttpRequest): Promise<HttpResponse> {
         headers: rec,
         body,
         latencyMs: Date.now() - started,
+        via: "undici",
       };
     } finally {
       clearTimeout(timer);
@@ -156,8 +165,70 @@ export async function fetchPublic(req: HttpRequest): Promise<HttpResponse> {
       latencyMs: Date.now() - started,
       error: name === "AbortError" ? "timeout" : message,
       ssrf,
+      via: "undici",
     };
   }
+}
+
+export async function fetchPublicBinary(url: string, timeoutMs = 8_000): Promise<HttpResponse> {
+  const started = Date.now();
+  try {
+    const safe = await assertSafeFetchTarget(url);
+    const headers = defaultHeaders(safe.href, "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await undiciFetch(safe.href, {
+        method: "GET",
+        headers,
+        dispatcher: getDispatcher(),
+        redirect: "follow",
+        signal: controller.signal,
+      });
+      const rec = headerRecord(res.headers);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const sliced = buf.length > BODY_LIMIT ? buf.subarray(0, BODY_LIMIT) : buf;
+      return {
+        ok: res.ok,
+        status: res.status,
+        url: safe.href,
+        finalUrl: res.url || safe.href,
+        headers: rec,
+        body: "",
+        bytes: sliced,
+        latencyMs: Date.now() - started,
+        via: "undici",
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    const ssrf = err instanceof SsrfError;
+    const name = err instanceof Error ? err.name : "";
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      status: 0,
+      url,
+      finalUrl: url,
+      headers: {},
+      body: "",
+      latencyMs: Date.now() - started,
+      error: name === "AbortError" ? "timeout" : message,
+      ssrf,
+      via: "undici",
+    };
+  }
+}
+
+export function retryAfterMs(headers: Record<string, string>, fallback = 800): number {
+  const raw = headers["retry-after"] ?? headers["Retry-After"];
+  if (!raw) return fallback;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(8_000, Math.max(200, seconds * 1000));
+  const when = Date.parse(raw);
+  if (Number.isFinite(when)) return Math.min(8_000, Math.max(200, when - Date.now()));
+  return fallback;
 }
 
 export async function fetchFollow(req: HttpRequest, maxRedirects = 5): Promise<HttpResponse> {
