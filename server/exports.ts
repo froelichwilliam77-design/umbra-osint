@@ -78,6 +78,7 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- DKIM: ${d.dkim.map((x) => x.selector).join(", ") || "none"}`,
       `- Gravatar: ${d.gravatar?.exists ? d.gravatar.displayName ?? "yes" : "no"}`,
       `- Local-part patterns: ${d.localPartAnalysis.patterns.join(", ") || "none"}`,
+      `- Open in: ${d.openLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
       "",
     );
   }

@@ -4,7 +4,7 @@ Umbra loads three schema layers:
 
 1. **`wmn-data.json`** — WhatsMyName registry (hundreds of platforms). Sync with `npm run sync:wmn`.
 2. **`sites.curated.yaml`** — extra handle targets, extractors, and overrides.
-3. **`oracles.yaml`** — silent email registration oracles (no SMTP, no password-reset mail).
+3. **`oracles.yaml`** — silent email registration oracles (no SMTP, no password-reset mail). v1.2.0 shipped 53; current registry is 161 Holehe-style signup / login-precheck / public-API checks.
 
 ## Handle site (WhatsMyName-compatible)
 

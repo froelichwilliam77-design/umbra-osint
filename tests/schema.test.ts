@@ -6,8 +6,8 @@ describe("schema integrity", () => {
   it("loads WMN + curated overlay", () => {
     const stats = schemaStats();
     expect(stats.handleSites).toBeGreaterThan(700);
-    expect(stats.oracles).toBeGreaterThan(45);
-    expect(stats.disposableDomains).toBeGreaterThan(250);
+    expect(stats.oracles).toBeGreaterThan(140);
+    expect(stats.disposableDomains).toBeGreaterThan(400);
   });
 
   it("has a handler for every oracle", () => {

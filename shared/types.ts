@@ -127,6 +127,7 @@ export interface MailDossier {
   domainCreated?: string;
   pivots: string[];
   localPartAnalysis: LocalPartAnalysis;
+  openLinks: { label: string; url: string }[];
 }
 
 export interface SpfRecord {
