@@ -1,4 +1,4 @@
-import type { HostDossier, LedgerRow, MailDossier, ScanSummary } from "../shared/types.ts";
+import type { HostDossier, LedgerRow, MailDossier, PhoneDossier, ScanSummary } from "../shared/types.ts";
 
 function csvEscape(v: string): string {
   if (/[",\n]/.test(v)) return `"${v.replaceAll('"', '""')}"`;
@@ -95,6 +95,20 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- RDAP registrar: ${d.rdap?.registrar ?? "unknown"}`,
       `- HTTPS title: ${d.https?.title ?? "n/a"}`,
       `- Cert SAN: ${d.cert?.san.slice(0, 8).join(", ") || "n/a"}`,
+      "",
+    );
+  }
+  if (scan.dossier && "e164" in scan.dossier) {
+    const d = scan.dossier as PhoneDossier;
+    lines.push(
+      "## Phone dossier",
+      "",
+      `- E.164: \`${d.e164 ?? "n/a"}\``,
+      `- Valid: ${d.valid}`,
+      `- Country: ${d.country ?? "unknown"}`,
+      `- Type: ${d.type ?? "unknown"}`,
+      `- Region: ${d.regionHint ?? "n/a"}`,
+      `- Carrier hint: ${d.carrierHint ?? "n/a"}`,
       "",
     );
   }

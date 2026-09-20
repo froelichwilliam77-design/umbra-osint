@@ -5,7 +5,8 @@ import { loadSchema, schemaStats, sitesForScan } from "../server/schema.ts";
 describe("schema integrity", () => {
   it("loads WMN + curated overlay", () => {
     const stats = schemaStats();
-    expect(stats.handleSites).toBeGreaterThan(700);
+    expect(stats.handleSites).toBeGreaterThan(900);
+    expect(stats.sherlockSites ?? 0).toBeGreaterThan(200);
     expect(stats.oracles).toBeGreaterThan(45);
     expect(stats.disposableDomains).toBeGreaterThan(250);
   });

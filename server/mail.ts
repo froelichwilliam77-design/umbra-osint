@@ -192,7 +192,10 @@ export async function runMailScan(
     onRow: (row: LedgerRow) => void;
   },
 ): Promise<void> {
-  const oracles = loadSchema().oracles;
+  const oracles = loadSchema().oracles.filter((spec) => {
+    if (spec.handler === "hibp" && !process.env.HIBP_API_KEY?.trim()) return false;
+    return true;
+  });
   const pool = new HostPool({ global: opts.workers, perHost: opts.perHost });
   await Promise.all(
     oracles.map((spec) =>

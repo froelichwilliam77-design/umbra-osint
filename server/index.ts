@@ -6,9 +6,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUTHORIZED_USE } from "../shared/constants.ts";
 import type { ScanMode } from "../shared/types.ts";
+import { impersonateHealth } from "./curl-impersonate.ts";
 import { renderExport } from "./exports.ts";
+import { playwrightAvailable, playwrightEnabled, playwrightMax } from "./playwright-pool.ts";
 import { importWmnPayload, reloadSchema, schemaStats } from "./schema.ts";
-import { getScan, listScans, startScan, subscribe } from "./scans.ts";
+import { compareStored, getScan, listScans, startScan, subscribe } from "./scans.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -18,15 +20,25 @@ const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });
 
-app.get("/api/health", async () => ({
-  ok: true,
-  name: "umbra",
-  warning: AUTHORIZED_USE,
-  proxy: Boolean(process.env.UMBRA_PROXY),
-  tlsImpersonation: false,
-  tlsNote:
-    "Node/undici with browser-matched headers, HTTP/2, UA rotation, and optional SOCKS/HTTP proxy. curl-impersonate / rquest is not bundled.",
-}));
+app.get("/api/health", async () => {
+  const tls = impersonateHealth();
+  return {
+    ok: true,
+    name: "umbra",
+    version: "1.2.0",
+    warning: AUTHORIZED_USE,
+    proxy: Boolean(process.env.UMBRA_PROXY),
+    hibp: Boolean(process.env.HIBP_API_KEY?.trim()),
+    playwright: {
+      enabled: playwrightEnabled(),
+      available: await playwrightAvailable(),
+      max: playwrightMax(),
+    },
+    pwa: true,
+    phone: true,
+    ...tls,
+  };
+});
 
 app.get("/api/schema", async () => schemaStats());
 
@@ -45,6 +57,14 @@ app.post("/api/schema/import", async (req, reply) => {
 });
 
 app.get("/api/scans", async () => ({ scans: listScans() }));
+
+app.get("/api/scans/compare", async (req, reply) => {
+  const q = req.query as { a?: string; b?: string };
+  if (!q.a || !q.b) return reply.code(400).send({ error: "a and b scan ids are required" });
+  const result = compareStored(q.a, q.b);
+  if (!result) return reply.code(404).send({ error: "one or both scans were not found (in-memory)" });
+  return result;
+});
 
 app.post("/api/scans", async (req, reply) => {
   const body = (req.body ?? {}) as {
@@ -71,7 +91,14 @@ app.get("/api/scans/:id", async (req, reply) => {
   const { id } = req.params as { id: string };
   const stored = getScan(id);
   if (!stored) return reply.code(404).send({ error: "scan not found" });
-  return { scan: stored.summary, rows: stored.rows };
+  return { scan: stored.summary, rows: stored.rows, graph: stored.summary.graph };
+});
+
+app.get("/api/scans/:id/graph", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const stored = getScan(id);
+  if (!stored) return reply.code(404).send({ error: "scan not found" });
+  return { graph: stored.summary.graph ?? null, clusters: stored.summary.avatarClusters ?? [] };
 });
 
 app.get("/api/scans/:id/events", async (req, reply) => {
