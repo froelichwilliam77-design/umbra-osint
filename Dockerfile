@@ -20,24 +20,26 @@ RUN apt-get update \
 
 COPY package.json ./
 COPY package-lock.json* ./
+# Never download Chromium at install time — it OOMs a 1 GB cgroup via page cache + RSS.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
 RUN if [ ! -f schema/wmn-data.json ]; then npx tsx scripts/sync-wmn.ts; fi
 RUN node scripts/gen-icons.mjs || true
 RUN npm run build
-RUN npx playwright install chromium || true
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV UMBRA_TLS=auto
-# Playwright stays OFF. Chromium OOMs a 1 GB Railway hobby/free service (~1.34 GB RSS).
-# Do not set UMBRA_PLAYWRIGHT=1 unless the service has ≥2 GB RAM.
+# Playwright stays OFF and browsers are not in the image.
+# Do not set UMBRA_PLAYWRIGHT=1 unless the service has ≥2 GB RAM and you install Chromium.
 ENV UMBRA_PLAYWRIGHT=0
 ENV UMBRA_PLAYWRIGHT_MAX=1
 ENV UMBRA_PROFILE=lean
 ENV UMBRA_WORKERS=4
-ENV UMBRA_CURL_MAX=1
+# Child curl processes are invisible to Node RSS and blew the 1 GB cgroup (~951 MB).
+ENV UMBRA_CURL_MAX=0
 ENV UMBRA_BODY_LIMIT=48000
 ENV UMBRA_MEM_SOFT_MB=450
 ENV UMBRA_MEM_HARD_MB=600

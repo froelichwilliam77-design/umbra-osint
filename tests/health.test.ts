@@ -24,7 +24,7 @@ describe("health + service worker", () => {
       expect(h.playwright.concurrent).toBe(1);
       expect(h.limits.workers).toBe(4);
       expect(h.limits.perHost).toBe(1);
-      expect(h.limits.curlMax).toBe(1);
+      expect(h.limits.curlMax).toBe(0);
       expect(h.limits.memSoftMb).toBe(450);
       expect(h.limits.memHardMb).toBe(600);
       expect(h.limits.bodyLimit).toBe(48000);

@@ -197,7 +197,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |
 | `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate. `auto` uses it only on WAF-heavy hosts |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |
-| `UMBRA_CURL_MAX` | `1` | Max concurrent curl-impersonate children (hard cap 2) |
+| `UMBRA_CURL_MAX` | `0` | Max concurrent curl-impersonate children (hard cap 2). **0 on 1 GB Railway** — children are invisible to Node RSS and OOMed the cgroup |
 | `UMBRA_WORKERS` | `4` | Default global scan concurrency (hard cap 8) |
 | `UMBRA_PER_HOST` | `1` | Default per-host concurrency (max 2) |
 | `UMBRA_BODY_LIMIT` | `48000` | Streamed response body cap (bytes) |

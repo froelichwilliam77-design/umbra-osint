@@ -26,7 +26,7 @@ export const DEFAULT_PER_HOST = 1;
 export const MAX_PER_HOST_CAP = 2;
 
 /** Concurrent curl-impersonate child processes. */
-export const DEFAULT_CURL_MAX = 1;
+export const DEFAULT_CURL_MAX = 0;
 export const MAX_CURL_CAP = 2;
 
 /** Response body cap (bytes). Streamed; never buffer the full payload. */
