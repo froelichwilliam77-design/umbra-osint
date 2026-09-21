@@ -1,10 +1,10 @@
 /** User-facing scan / memory copy. Shared so API errors and the UI stay in sync. */
 
 export const MEMORY_ABORT_MESSAGE =
-  "Scan stopped to stay under the 1 GB memory limit. Keep Lean, or raise Railway Settings → Resources to ≥2 GB and use Power (TLS impersonation).";
+  "Scan stopped to stay under this host's memory limit. Keep Lean, or raise memory in Railway Settings → Resources and use Power (TLS impersonation).";
 
 export const MEMORY_BUSY_MESSAGE =
-  "This host is near its memory limit. Wait a few seconds, stay on Lean, or raise Railway Settings → Resources to ≥2 GB.";
+  "This host is near its memory limit. Wait a few seconds, stay on Lean, or raise memory in Railway Settings → Resources.";
 
 export const SCAN_REPLACE_BUSY =
   "A scan is already running. 1 GB hosts keep one scan in flight — tap Cancel, then Recon.";

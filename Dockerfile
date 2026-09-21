@@ -42,8 +42,8 @@ ENV UMBRA_WORKERS=4
 # Attach a Railway volume at /data (cases + watches JSON). Override with UMBRA_CASES_DIR.
 ENV UMBRA_CURL_MAX=0
 ENV UMBRA_BODY_LIMIT=48000
-ENV UMBRA_MEM_SOFT_MB=450
-ENV UMBRA_MEM_HARD_MB=600
+# RSS watermarks auto-scale from cgroup RAM (450/600 on 1 GB; ~70%/85% when ≥~1800 MB).
+# Do not pin UMBRA_MEM_SOFT_MB / UMBRA_MEM_HARD_MB here — that freezes 1 GB limits on 8 GB hosts.
 ENV NODE_OPTIONS=--max-old-space-size=384
 EXPOSE 43180
 
