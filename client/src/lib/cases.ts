@@ -187,11 +187,18 @@ export function downloadText(filename: string, body: string, type: string): void
 export function exportLocalCase(rec: SavedCase, format: "json" | "md" | "html"): void {
   const base = `umbra-case-${rec.mode}-${rec.query.replace(/[^\w.@+-]+/g, "_")}`;
   if (format === "html") {
-    downloadText(`${base}.html`, exportExecutiveHtml(rec.summary, rec.foundRows, { caseSavedAt: rec.savedAt }), "text/html");
+    downloadText(`${base}.html`, exportExecutiveHtml(rec.summary, rec.foundRows, {
+      caseSavedAt: rec.savedAt,
+      notes: rec.notes,
+      identityClusters: rec.summary.identityClusters,
+    }), "text/html");
     return;
   }
   if (format === "md") {
-    downloadText(`${base}.md`, exportMarkdown(rec.summary, rec.foundRows), "text/markdown");
+    downloadText(`${base}.md`, exportMarkdown(rec.summary, rec.foundRows, {
+      notes: rec.notes,
+      identityClusters: rec.summary.identityClusters,
+    }), "text/markdown");
     return;
   }
   downloadText(`${base}.json`, exportJson(rec.summary, rec.foundRows), "application/json");

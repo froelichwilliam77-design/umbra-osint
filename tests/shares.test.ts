@@ -10,6 +10,7 @@ import {
   revokeShare,
   shareIsLive,
   sharePath,
+  getShare,
 } from "../server/shares.ts";
 import type { LedgerRow, ScanSummary } from "../shared/types.ts";
 
@@ -96,5 +97,21 @@ describe("read-only share links", () => {
     expect(publicShareView(live.token)?.query).toBe("octocat");
     revokeShare(live.token);
     expect(publicShareView(live.token)).toBeNull();
+  });
+
+  it("mints a write share with a join code that can add operator notes", async () => {
+    process.env.UMBRA_CASES_DIR = dir;
+    persistCase(caseFromScan(summary(), [row()]));
+    const rec = createShare({ caseId: "case-1", role: "write" });
+    expect(rec.role).toBe("write");
+    expect(rec.accessCode).toMatch(/^[a-f0-9]{8}$/);
+    expect(getShare(rec.accessCode!)?.token).toBe(rec.token);
+    const view = publicShareView(rec.token);
+    expect(view?.readOnly).toBe(false);
+    expect(view?.role).toBe("write");
+    expect(view?.shareNote).toMatch(/not a full team IdP/i);
+    const { appendCaseNote } = await import("../server/cases.ts");
+    appendCaseNote("case-1", "Team note from write share.", "share");
+    expect(publicShareView(rec.token)?.notes?.some((n) => n.text.includes("Team note"))).toBe(true);
   });
 });

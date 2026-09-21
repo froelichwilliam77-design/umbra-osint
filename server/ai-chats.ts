@@ -20,6 +20,8 @@ export const AI_SHARE_PATTERNS: AiSharePattern[] = [
   { product: "Poe", re: /https?:\/\/poe\.com\/s\/[a-z0-9-]{6,}/gi },
   { product: "Character.AI", re: /https?:\/\/(?:www\.)?character\.ai\/(?:public-chat|chat)\/[a-z0-9-]{6,}/gi },
   { product: "HuggingChat", re: /https?:\/\/huggingface\.co\/chat\/(?:assistant|conversation)\/[a-z0-9-]{6,}/gi },
+  { product: "Gemini", re: /https?:\/\/gemini\.google\.com\/share\/[a-zA-Z0-9_-]{8,}/gi },
+  { product: "Grok", re: /https?:\/\/(?:grok\.com|x\.com)\/share\/[a-zA-Z0-9_-]{8,}/gi },
 ];
 
 /** Silent account-exists oracles that are AI-chat signals — never private transcripts. */
@@ -82,6 +84,8 @@ export function aiSearchQueries(identifier: string, profile: ScanProfile): strin
     `${quoted} site:perplexity.ai/search OR site:perplexity.ai/page`,
     `${quoted} site:poe.com/s`,
     `${quoted} site:character.ai`,
+    `${quoted} site:gemini.google.com/share`,
+    `${quoted} site:huggingface.co/chat`,
   ];
   if (profile === "lean") return full.slice(0, 3);
   return full;
@@ -97,6 +101,8 @@ export function aiSearchLinks(identifier: string): { label: string; url: string 
     { label: "Poe shares (Google)", url: `https://www.google.com/search?q=${q}+site%3Apoe.com%2Fs` },
     { label: "Character.AI (Google)", url: `https://www.google.com/search?q=${q}+site%3Acharacter.ai` },
     { label: "HuggingChat (Google)", url: `https://www.google.com/search?q=${q}+site%3Ahuggingface.co%2Fchat` },
+    { label: "Gemini shares (Google)", url: `https://www.google.com/search?q=${q}+site%3Agemini.google.com%2Fshare` },
+    { label: "Grok shares (Google)", url: `https://www.google.com/search?q=${q}+site%3Agrok.com%2Fshare` },
   ];
 }
 

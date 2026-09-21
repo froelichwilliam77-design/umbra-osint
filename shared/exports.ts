@@ -1,6 +1,8 @@
 import type {
+  CaseNote,
   CrawlDossier,
   HostDossier,
+  IdentityCluster,
   LedgerRow,
   MailDossier,
   PhoneDossier,
@@ -8,11 +10,17 @@ import type {
   ScanSummary,
 } from "./types.ts";
 
+export interface ExportExtras {
+  caseSavedAt?: string;
+  notes?: CaseNote[];
+  identityClusters?: IdentityCluster[];
+}
+
 export function exportJson(scan: ScanSummary, rows: LedgerRow[]): string {
   return JSON.stringify({ scan, rows }, null, 2);
 }
 
-export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
+export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[], extras?: ExportExtras): string {
   const found = rows.filter((r) => r.status === "found");
   const lines = [
     `# Umbra report — ${scan.query}`,
@@ -43,6 +51,8 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- Gravatar: ${d.gravatar?.exists ? d.gravatar.displayName ?? "yes" : "no"}`,
       `- Local-part patterns: ${d.localPartAnalysis.patterns.join(", ") || "none"}`,
       `- Open in: ${d.openLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
+      `- People search: ${d.peopleLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
+      `- Reverse image: ${d.reverseImage?.map((l) => `[${l.engine}](${l.url})`).join(" · ") || "none"}`,
       "",
     );
     if (d.hibp) {
@@ -78,6 +88,17 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       }
       lines.push("");
     }
+    if (d.pastes) {
+      lines.push("## Public pastes", "", `_${d.pastes.disclaimer}_`, "");
+      if (d.pastes.hits.length) {
+        for (const h of d.pastes.hits.slice(0, 20)) {
+          lines.push(`- **${h.site}** (${h.confidence}) — [${h.url}](${h.url})${h.title ? ` — ${h.title}` : ""}`);
+        }
+      } else {
+        lines.push("- No public paste URLs harvested. Search pivots remain in the dossier.");
+      }
+      lines.push("");
+    }
   }
   if (scan.dossier && "dns" in scan.dossier && "domain" in scan.dossier) {
     const d = scan.dossier as HostDossier;
@@ -93,6 +114,10 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- RDAP registrar: ${d.rdap?.registrar ?? "unknown"}`,
       `- HTTPS title: ${d.https?.title ?? "n/a"}`,
       `- Cert SAN: ${d.cert?.san.slice(0, 8).join(", ") || "n/a"}`,
+      `- CT names: ${d.ct?.names.slice(0, 12).join(", ") || "none"} (${d.ct?.source ?? "not harvested"})`,
+      `- PTR: ${d.ptr?.join(", ") || "none"}`,
+      `- Subdomains (CT): ${d.subdomains?.slice(0, 12).join(", ") || "none"}`,
+      `- Public links: ${d.openLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
       "",
     );
   }
@@ -109,6 +134,7 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- Carrier hint: ${d.carrierHint ?? "n/a"}`,
       `- Timezones: ${d.timezones.join(", ") || "n/a"}`,
       `- Public links: ${d.openLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
+      `- People search: ${d.peopleLinks?.map((l) => `[${l.label}](${l.url})`).join(" · ") || "none"}`,
       "",
     );
   }
@@ -126,6 +152,25 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       `- Links: ${d.links.length}`,
       "",
     );
+  }
+  const clusters = extras?.identityClusters ?? scan.identityClusters ?? [];
+  if (clusters.length) {
+    lines.push("## Identity clusters", "");
+    for (const c of clusters.slice(0, 12)) {
+      lines.push(
+        `- **${c.label}** (${Math.round(c.confidence * 100)}% · ${c.kind}) — ${c.members.map((m) => m.site).join(", ")}`,
+      );
+      lines.push(`  - ${c.reasons.join("; ")}`);
+    }
+    lines.push("");
+  }
+  const notes = extras?.notes ?? [];
+  if (notes.length) {
+    lines.push("## Operator notes", "");
+    for (const n of notes) {
+      lines.push(`- ${n.at} (${n.via}): ${n.text}`);
+    }
+    lines.push("");
   }
   lines.push("## Found", "");
   if (!found.length) lines.push("_No found rows._", "");
@@ -148,7 +193,7 @@ function escHtml(s: string): string {
 }
 
 /** Print-ready executive HTML. Browser File → Print → Save as PDF is the 1 GB-safe PDF path. */
-export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?: { caseSavedAt?: string }): string {
+export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?: ExportExtras): string {
   const found = rows.filter((r) => r.status === "found");
   const dossierBits: string[] = [];
   if (scan.dossier && "email" in scan.dossier) {
@@ -173,6 +218,18 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
               }</li>`
             : ""
         }
+        ${
+          d.pastes
+            ? `<li>Public pastes: ${
+                d.pastes.hits.length
+                  ? d.pastes.hits
+                      .slice(0, 8)
+                      .map((h) => `<a href="${escHtml(h.url)}">${escHtml(h.site)}</a>`)
+                      .join(", ")
+                  : "none harvested"
+              }</li>`
+            : ""
+        }
       </ul>`,
     );
   }
@@ -185,6 +242,8 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
         <li>A ${escHtml(d.dns.a.join(", ") || "none")}</li>
         <li>HTTPS ${escHtml(d.https?.title ?? "n/a")} (${d.https?.status ?? "—"})</li>
         <li>Cert SAN ${escHtml(d.cert?.san.slice(0, 8).join(", ") || "n/a")}</li>
+        <li>CT ${escHtml(d.ct?.names.slice(0, 8).join(", ") || "none")}</li>
+        <li>PTR ${escHtml(d.ptr?.join(", ") || "none")}</li>
       </ul>`,
     );
   }
@@ -195,6 +254,7 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
         <li>E.164 <code>${escHtml(d.e164 ?? "n/a")}</code></li>
         <li>Country ${escHtml(d.country ?? "unknown")} · ${escHtml(d.type ?? "unknown")}</li>
         <li>Region ${escHtml(d.regionHint ?? "n/a")}</li>
+        <li>Carrier ${escHtml(d.carrierHint ?? "n/a")}</li>
       </ul>`,
     );
   }
@@ -207,6 +267,28 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
         <li>Emails ${escHtml(d.emails.slice(0, 20).join(", ") || "none")}</li>
         <li>Usernames ${escHtml(d.usernames.slice(0, 20).join(", ") || "none")}</li>
       </ul>`,
+    );
+  }
+  const identity = opts?.identityClusters ?? scan.identityClusters ?? [];
+  if (identity.length) {
+    dossierBits.push(
+      `<h2>Identity clusters</h2><ul>${identity
+        .slice(0, 12)
+        .map(
+          (c) =>
+            `<li><strong>${escHtml(c.label)}</strong> (${Math.round(c.confidence * 100)}% · ${escHtml(c.kind)}) — ${escHtml(
+              c.members.map((m) => m.site).join(", "),
+            )}<br/><span>${escHtml(c.reasons.join("; "))}</span></li>`,
+        )
+        .join("")}</ul>`,
+    );
+  }
+  const notes = opts?.notes ?? [];
+  if (notes.length) {
+    dossierBits.push(
+      `<h2>Operator notes</h2><ul>${notes
+        .map((n) => `<li>${escHtml(n.at)} (${escHtml(n.via)}): ${escHtml(n.text)}</li>`)
+        .join("")}</ul>`,
     );
   }
   const foundRows = found
@@ -248,7 +330,7 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
 </head>
 <body>
   <p class="print"><button onclick="window.print()">Print / Save as PDF</button> — no headless Chrome required.</p>
-  <h1>Umbra executive report</h1>
+  <h1>Umbra client brief</h1>
   <p class="meta"><strong>${escHtml(scan.query)}</strong> · ${escHtml(scan.mode)}${scan.profile ? ` · ${escHtml(scan.profile)}` : ""} · ${escHtml(scan.createdAt)}${scan.finishedAt ? ` → ${escHtml(scan.finishedAt)}` : ""}${opts?.caseSavedAt ? ` · saved ${escHtml(opts.caseSavedAt)}` : ""}</p>
   <div class="kpis">
     <div class="kpi"><b>${scan.progress.found}</b>found</div>

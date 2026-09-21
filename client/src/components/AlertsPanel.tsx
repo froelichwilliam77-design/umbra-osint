@@ -193,7 +193,16 @@ export function AlertsPanel({
             <Button type="button" size="sm" variant="outline" className="mt-3 tap-lg" disabled={testing} onClick={() => void runTest()}>
               {testing ? "Sending…" : "Test alert"}
             </Button>
-            {testMsg && <p className="mt-2 text-sm text-fog-100">{testMsg}</p>}
+            {testMsg && (
+              <p className={`mt-2 text-sm ${testMsg.toLowerCase().includes("nothing to send") ? "text-signal-blocked" : "text-fog-100"}`}>
+                {testMsg}
+              </p>
+            )}
+            {!ch.webhook && !ch.email && !ch.telegram && (
+              <p className="mt-2 text-[11px] text-fog-500">
+                Test alert is a dry run until at least one channel lights up. Set vars in Railway → Variables — never paste secrets here.
+              </p>
+            )}
           </div>
           <p className="mt-3 text-sm text-fog-300">
             Re-run a lean scan on an interval (minimum 1 hour, default 24h). New founds land here
@@ -239,7 +248,12 @@ export function AlertsPanel({
           </form>
           {error && <p className="mt-2 text-sm text-signal-error">{error}</p>}
           {watches.length === 0 ? (
-            <p className="mt-3 text-sm text-fog-500">No watches yet.</p>
+            <p className="mt-3 text-sm text-fog-500">
+              No watches yet. Watch a handle, mail, host, or phone — new founds land here.
+              {channelBits.length
+                ? ` Outbound ${channelBits.join(" + ")} is on.`
+                : " Telegram / Resend / webhook stay dark until those Railway Variables are set. Umbra cannot invent keys."}
+            </p>
           ) : (
             <ul className="mt-3 space-y-1">
               {watches.map((w) => (
@@ -309,7 +323,11 @@ export function AlertsPanel({
           )}
           <div className="mt-4 text-xs uppercase tracking-wide text-fog-300">Alerts · {alerts.length}</div>
           {alerts.length === 0 ? (
-            <p className="mt-2 text-sm text-fog-500">No new founds since the last snapshot.</p>
+            <p className="mt-2 text-sm text-fog-500">
+              {watches.length === 0
+                ? "No watches, so no alerts yet. Create a watch above, then tap Test alert to verify Telegram / Resend / webhook."
+                : "No new founds since the last snapshot. Test alert still sends to any configured operator channels."}
+            </p>
           ) : (
             <ul className="mt-2 space-y-2">
               {alerts.slice(0, 12).map((a) => (

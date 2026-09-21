@@ -2,8 +2,9 @@ import parsePhoneNumberFromString, { getCountries, getCountryCallingCode } from 
 import type { CountryCode } from "libphonenumber-js/max";
 import type { LedgerRow, PhoneDossier } from "../shared/types.ts";
 import { fetchPublic } from "./http.ts";
+import { peopleSearchLinks } from "./people.ts";
 
-export const PHONE_LEDGER_COUNT = 5;
+export const PHONE_LEDGER_COUNT = 7;
 
 /** Public NANP NPA → region labels (numbering-plan data, not a live carrier dump). */
 const NANP_NPA: Record<string, string> = {
@@ -486,6 +487,7 @@ export function phoneOpenLinks(e164: string, country?: string): { label: string;
   const q = encodeURIComponent(`"${e164}"`);
   const digits = e164.replace(/\D/g, "");
   const cc = (country || "us").toLowerCase();
+  const national = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
   return [
     { label: "Google", url: `https://www.google.com/search?q=${q}` },
     { label: "DuckDuckGo", url: `https://duckduckgo.com/?q=${q}` },
@@ -494,6 +496,11 @@ export function phoneOpenLinks(e164: string, country?: string): { label: string;
     { label: "NumLookup", url: `https://www.numlookup.com/${digits}` },
     { label: "SpyDialer", url: `https://www.spydialer.com/default.aspx?n=${digits}` },
     { label: "WhatsApp", url: `https://wa.me/${digits}` },
+    { label: "Telegram (search)", url: `https://www.google.com/search?q=${q}+site%3At.me` },
+    { label: "NANPA NPA", url: `https://nationalnanpa.com/enas/npa_query_form.do` },
+    { label: "FCC numbering", url: `https://www.fcc.gov/general/numbering` },
+    { label: "Paste search", url: `https://www.google.com/search?q=${q}+(pastebin|ghostbin|rentry)` },
+    { label: "US formatted (Google)", url: `https://www.google.com/search?q=${encodeURIComponent(`"${national}"`)}` },
   ];
 }
 
@@ -614,6 +621,62 @@ export async function lookupNumverify(e164: string): Promise<PhoneDossier["looku
   return { source: "Numverify", status: "error", detail: `HTTP ${res.status}` };
 }
 
+/** Optional AbstractAPI phone intelligence. Skip when ABSTRACTAPI_KEY / ABSTRACT_PHONE_API_KEY unset. */
+export async function lookupAbstractPhone(e164: string): Promise<PhoneDossier["lookups"][number] | null> {
+  const key =
+    process.env.ABSTRACTAPI_KEY?.trim() ||
+    process.env.ABSTRACT_PHONE_API_KEY?.trim() ||
+    process.env.ABSTRACTAPI_PHONE_KEY?.trim();
+  if (!key) return null;
+  const url = `https://phoneintelligence.abstractapi.com/v1/?api_key=${encodeURIComponent(key)}&phone=${encodeURIComponent(e164)}`;
+  const res = await fetchPublic({ url, accept: "application/json" });
+  if (res.status === 200) {
+    try {
+      const j = JSON.parse(res.body) as {
+        carrier?: string;
+        type?: string;
+        location?: string;
+        valid?: boolean;
+        country?: { name?: string };
+      };
+      return {
+        source: "AbstractAPI",
+        status: j.valid === false ? "miss" : "found",
+        detail: [j.carrier, j.type, j.location, j.country?.name].filter(Boolean).join(" · ") || "lookup OK",
+      };
+    } catch {
+      return { source: "AbstractAPI", status: "error", detail: "Non-JSON response" };
+    }
+  }
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    return { source: "AbstractAPI", status: "blocked", detail: `HTTP ${res.status}` };
+  }
+  return { source: "AbstractAPI", status: "error", detail: `HTTP ${res.status}` };
+}
+
+/** Optional OpenCNAM. Skip when OPENCNAM_SID + OPENCNAM_TOKEN unset. */
+export async function lookupOpenCnam(e164: string): Promise<PhoneDossier["lookups"][number] | null> {
+  const sid = process.env.OPENCNAM_SID?.trim();
+  const token = process.env.OPENCNAM_TOKEN?.trim() || process.env.OPENCNAM_AUTH_TOKEN?.trim();
+  if (!sid || !token) return null;
+  const url = `https://api.opencnam.com/v3/phone/${encodeURIComponent(e164)}?account_sid=${encodeURIComponent(sid)}&auth_token=${encodeURIComponent(token)}`;
+  const res = await fetchPublic({ url, accept: "application/json" });
+  if (res.status === 200) {
+    try {
+      const j = JSON.parse(res.body) as { name?: string; number?: string };
+      if (!j.name) return { source: "OpenCNAM", status: "miss", detail: "No CNAM listing." };
+      return { source: "OpenCNAM", status: "found", detail: j.name };
+    } catch {
+      return { source: "OpenCNAM", status: "error", detail: "Non-JSON response" };
+    }
+  }
+  if (res.status === 404) return { source: "OpenCNAM", status: "miss", detail: "No CNAM listing." };
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    return { source: "OpenCNAM", status: "blocked", detail: `HTTP ${res.status}` };
+  }
+  return { source: "OpenCNAM", status: "error", detail: `HTTP ${res.status}` };
+}
+
 export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
   const parsed = parsePhone(raw);
   const e164 = parsed?.number;
@@ -625,9 +688,16 @@ export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
   const typeHint = typeLabel(type);
   const lookups: PhoneDossier["lookups"] = [];
   if (e164) {
-    const [twilio, numverify] = await Promise.all([lookupTwilio(e164), lookupNumverify(e164)]);
+    const [twilio, numverify, abstractApi, opencnam] = await Promise.all([
+      lookupTwilio(e164),
+      lookupNumverify(e164),
+      lookupAbstractPhone(e164),
+      lookupOpenCnam(e164),
+    ]);
     if (twilio) lookups.push(twilio);
     if (numverify) lookups.push(numverify);
+    if (abstractApi) lookups.push(abstractApi);
+    if (opencnam) lookups.push(opencnam);
   }
   const carrierFromLookup = lookups.find((l) => l.status === "found" && l.detail)?.detail;
   const pivots: string[] = [];
@@ -636,6 +706,7 @@ export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
   if (country) pivots.push(country.toLowerCase());
   const timezones = timezonesFor(country, nanp);
   const openLinks = e164 ? phoneOpenLinks(e164, country) : [];
+  const peopleLinks = e164 ? peopleSearchLinks(e164, "phone") : [];
 
   return {
     raw: raw.trim(),
@@ -650,11 +721,12 @@ export async function buildPhoneDossier(raw: string): Promise<PhoneDossier> {
     rfc3966: parsed?.getURI(),
     type: typeHint,
     regionHint,
-    carrierHint: carrierFromLookup || (typeHint ? `${typeHint} (libphonenumber type; live carrier needs Twilio/Numverify key)` : undefined),
+    carrierHint: carrierFromLookup || (typeHint ? `${typeHint} (libphonenumber type; live carrier needs Twilio/Numverify/AbstractAPI/OpenCNAM key)` : undefined),
     timezones,
     pivots: [...new Set(pivots)],
     lookups,
     openLinks,
+    peopleLinks,
   };
 }
 
@@ -781,6 +853,21 @@ export async function runPhoneScan(
     method: "LINK",
     metadata: {
       extra: Object.fromEntries(dossier.openLinks.map((l) => [l.label, l.url])),
+    },
+  });
+  opts.onRow({
+    id: `${scanId}:people-links`,
+    scanId,
+    mode: "phone",
+    target: e164,
+    site: "People search (public)",
+    category: "search",
+    status: "found",
+    reason: "Open-web people search URLs only — Umbra does not scrape paid people-search brokers.",
+    url: dossier.peopleLinks?.[0]?.url ?? dossier.openLinks[0]?.url ?? e164,
+    method: "LINK",
+    metadata: {
+      extra: Object.fromEntries((dossier.peopleLinks ?? []).map((l) => [l.label, l.url])),
     },
   });
   void getCountryCallingCode;

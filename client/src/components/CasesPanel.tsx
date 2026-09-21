@@ -37,7 +37,7 @@ export function CasesPanel({
   const byId = useMemo(() => new Map(cases.map((c) => [c.id, c])), [cases]);
   const persistLabel = persist === "volume" ? "server volume · all devices" : "this browser (IndexedDB)";
 
-  const copyShare = async (rec: SavedCase) => {
+  const copyShare = async (rec: SavedCase, role: "read" | "write" = "read") => {
     setShareBusy(rec.id);
     try {
       if (persist !== "volume") {
@@ -51,13 +51,17 @@ export function CasesPanel({
       const res = await fetch(`/api/cases/${encodeURIComponent(rec.id)}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expiresInHours: Number.isFinite(hours) && hours! > 0 ? hours : null }),
+        body: JSON.stringify({
+          expiresInHours: Number.isFinite(hours) && hours! > 0 ? hours : null,
+          role,
+        }),
       });
-      const data = (await res.json()) as CaseShare & { path?: string; error?: string };
+      const data = (await res.json()) as CaseShare & { path?: string; error?: string; accessCode?: string };
       if (!res.ok) throw new Error(data.error || "Share failed");
       const url = `${window.location.origin}${data.path ?? `/share/${data.token}`}`;
-      await navigator.clipboard.writeText(url).catch(() => undefined);
-      setShareUrl(url);
+      const extra = data.accessCode ? `\nJoin code: ${data.accessCode}` : "";
+      await navigator.clipboard.writeText(`${url}${extra}`).catch(() => undefined);
+      setShareUrl(`${url}${extra}`);
       const listed = await fetch(`/api/cases/${encodeURIComponent(rec.id)}/shares`);
       if (listed.ok) {
         const body = (await listed.json()) as { shares?: CaseShare[] };
@@ -78,7 +82,7 @@ export function CasesPanel({
 
   return (
     <section className="mt-4 scroll-mt-28 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
-      {shareUrl && <CopyDialog title="Read-only share URL" value={shareUrl} onClose={() => setShareUrl(null)} />}
+      {shareUrl && <CopyDialog title="Share URL (copy)" value={shareUrl} onClose={() => setShareUrl(null)} />}
       <button
         type="button"
         className="tap-lg mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-left"
@@ -204,6 +208,16 @@ export function CasesPanel({
               <Button
                 size="sm"
                 variant="outline"
+                className="tap-lg hidden sm:inline-flex"
+                disabled={shareBusy === c.id}
+                onClick={() => void copyShare(c, "write")}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Write share
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 className="tap-lg"
                 onClick={async () => {
                   await deleteCaseHybrid(c.id, persist);
@@ -229,6 +243,8 @@ export function CasesPanel({
                     /share/{s.token.slice(0, 10)}…
                   </a>
                   {s.expiresAt ? <span>exp {new Date(s.expiresAt).toLocaleDateString()}</span> : <span>no expiry</span>}
+                  <span>{s.role === "write" ? "read-write" : "read-only"}</span>
+                  {s.accessCode ? <span>code {s.accessCode}</span> : null}
                   <Button
                     size="sm"
                     variant="outline"

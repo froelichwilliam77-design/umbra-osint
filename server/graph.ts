@@ -5,6 +5,7 @@ import type {
   GraphEdge,
   GraphNode,
   HostDossier,
+  IdentityCluster,
   IdentityGraph,
   LedgerRow,
   MailDossier,
@@ -32,6 +33,7 @@ export function buildIdentityGraph(input: {
   summary: ScanSummary;
   rows: LedgerRow[];
   clusters?: AvatarCluster[];
+  identityClusters?: IdentityCluster[];
 }): IdentityGraph {
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
@@ -166,6 +168,19 @@ export function buildIdentityGraph(input: {
     });
     for (const site of cluster.sites) {
       addEdge(edges, `profile:${site}`, av, "same-avatar");
+    }
+  }
+
+  for (const cluster of input.identityClusters ?? []) {
+    const id = `cluster:${cluster.id}`;
+    addNode(nodes, {
+      id,
+      kind: "cluster",
+      label: `${cluster.label} (${Math.round(cluster.confidence * 100)}%)`,
+    });
+    for (const member of cluster.members.slice(0, 8)) {
+      const profileId = `profile:${member.site}`;
+      if (nodes.has(profileId)) addEdge(edges, profileId, id, cluster.kind);
     }
   }
 

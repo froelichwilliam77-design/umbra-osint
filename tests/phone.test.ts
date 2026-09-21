@@ -37,6 +37,7 @@ describe("phone detection and E.164", () => {
     const d = await buildPhoneDossier("+14155552671");
     expect(d.e164).toBe("+14155552671");
     expect(d.openLinks.length).toBeGreaterThan(3);
+    expect(d.peopleLinks?.length).toBeGreaterThan(0);
     expect(d.timezones.length).toBeGreaterThan(0);
     expect(d.regionHint).toMatch(/United States|San Francisco/i);
   });

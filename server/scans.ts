@@ -21,6 +21,10 @@ import {
   resolveMode,
 } from "./detect.ts";
 import { emptyAiChatDossier, runAiChatRecon } from "./ai-chats.ts";
+import { emptyPasteDossier, runPasteRecon } from "./pastes.ts";
+import { clusterIdentities } from "./identity.ts";
+import { peopleSearchLinks } from "./people.ts";
+import { attachReverseImageToFoundRows } from "./reverse-image.ts";
 import { autoPivotsEnabled, planAutoPivots } from "./auto-pivots.ts";
 import { handleScanProbeCount, runHandleScan } from "./handle.ts";
 import { variantsEnabled } from "./variants.ts";
@@ -220,8 +224,8 @@ export async function startScan(input: {
         : `Full profile: ${sitesForScan(includeNsfw, { profile: "full" }).length} unique sites (WMN + Sherlock + Maigret, deduped). Fast tier runs first, then the rest.${wantVariants ? " Variants recon a capped high-signal slice." : ""}`
       : kind === "mail"
         ? profile === "lean"
-          ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped; public AI-share harvest (${siteCount} checks).`
-          : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe) plus public AI-share harvest.`
+          ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped; public AI-share + paste harvest (${siteCount} checks).`
+          : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe) plus public AI-share and paste harvest.`
         : kind === "crawl"
           ? `Bounded same-origin crawl (max pages from ${profile} / power). Private and loopback hosts are blocked.`
           : undefined;
@@ -510,6 +514,7 @@ async function execute(
           stored.summary.dossier = d;
           emit(stored, { type: "dossier", dossier: d });
         },
+        profile,
       });
     }
     if (stored.summary.mode === "handle" || stored.summary.mode === "mail") {
@@ -536,18 +541,73 @@ async function execute(
           stored.summary.dossier = dossier;
           emit(stored, { type: "dossier", dossier });
         }
+        emit(stored, { type: "notice", message: "Public paste harvest (search + GET-verify). No dark-web markets." });
+        const pasteHits = await runPasteRecon(stored.summary.id, stored.summary.query, {
+          profile,
+          power: stored.summary.power,
+          mode: stored.summary.mode,
+          onRow,
+          pool: stored.pool ?? undefined,
+          seedText,
+        });
+        if (stored.summary.mode === "mail" && stored.summary.dossier && "email" in stored.summary.dossier) {
+          const dossier = stored.summary.dossier as MailDossier;
+          dossier.pastes = {
+            ...emptyPasteDossier(stored.summary.query),
+            hits: pasteHits,
+          };
+          stored.summary.dossier = dossier;
+          emit(stored, { type: "dossier", dossier });
+        }
       }
       if (stored.summary.status !== "cancelled") {
+        attachReverseImageToFoundRows(stored.rows);
         const hashed = await hashFoundAvatars(stored.rows);
+        attachReverseImageToFoundRows(stored.rows);
         stored.summary.avatarClusters = hashed.clusters;
         if (hashed.clusters.length) emit(stored, { type: "clusters", clusters: hashed.clusters });
+        stored.summary.identityClusters = clusterIdentities({
+          rows: stored.rows,
+          avatarClusters: hashed.clusters,
+          query: stored.summary.query,
+        });
+        if (stored.summary.identityClusters.length) {
+          emit(stored, { type: "identity", clusters: stored.summary.identityClusters });
+        }
       }
+    } else if (stored.summary.status !== "cancelled") {
+      attachReverseImageToFoundRows(stored.rows);
+      stored.summary.identityClusters = clusterIdentities({
+        rows: stored.rows,
+        avatarClusters: stored.summary.avatarClusters,
+        query: stored.summary.query,
+      });
+      if (stored.summary.identityClusters.length) {
+        emit(stored, { type: "identity", clusters: stored.summary.identityClusters });
+      }
+    }
+    if (stored.summary.mode === "handle" && stored.summary.status !== "cancelled") {
+      const people = peopleSearchLinks(stored.summary.query, "handle");
+      onRow({
+        id: `${stored.summary.id}:people-search`,
+        scanId: stored.summary.id,
+        mode: "handle",
+        target: stored.summary.query,
+        site: "People search (public)",
+        category: "search",
+        status: "found",
+        reason: "Open-web people search URLs only — no paid people-search broker scrape.",
+        url: people[0]?.url ?? `https://www.google.com/search?q=${encodeURIComponent(`"${stored.summary.query}"`)}`,
+        method: "LINK",
+        metadata: { extra: Object.fromEntries(people.map((l) => [l.label, l.url])) },
+      });
     }
     if (stored.summary.status !== "cancelled") {
       stored.summary.graph = buildIdentityGraph({
         summary: stored.summary,
         rows: stored.rows,
         clusters: stored.summary.avatarClusters,
+        identityClusters: stored.summary.identityClusters,
       });
       emit(stored, { type: "graph", graph: stored.summary.graph });
       if (wantAuto) {

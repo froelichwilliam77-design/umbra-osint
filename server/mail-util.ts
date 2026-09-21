@@ -74,6 +74,9 @@ export function mailOpenLinks(email: string, hash?: string, sha256?: string): { 
     { label: "Gravatar SHA-256", url: sha ? `https://gravatar.com/${sha}` : `https://gravatar.com/` },
     { label: "Wayback", url: `https://web.archive.org/web/*/${q}` },
     { label: "LinkedIn (Google)", url: `https://www.google.com/search?q=site%3Alinkedin.com+${q}` },
+    { label: "Facebook (Google)", url: `https://www.google.com/search?q=site%3Afacebook.com+${q}` },
+    { label: "X / Twitter (Google)", url: `https://www.google.com/search?q=site%3Ax.com+OR+site%3Atwitter.com+${q}` },
+    { label: "IDCrawl", url: `https://www.idcrawl.com/u/${encodeURIComponent(email.split("@")[0] ?? email)}` },
   ];
 }
 

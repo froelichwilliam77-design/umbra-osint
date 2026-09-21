@@ -28,6 +28,9 @@ describe("AI chat public OSINT", () => {
     expect(hits.some((h) => h.product === "ChatGPT" && h.url.includes("/share/e/"))).toBe(true);
     expect(hits.some((h) => h.product === "Claude")).toBe(true);
     expect(hits.some((h) => h.product === "Poe")).toBe(true);
+    expect(extractAiShareUrls("see https://gemini.google.com/share/AbCdEfGhIjKlMnOp").some((h) => h.product === "Gemini")).toBe(
+      true,
+    );
     expect(extractAiShareUrls("no links here, certainly not a uuid")).toEqual([]);
   });
 
