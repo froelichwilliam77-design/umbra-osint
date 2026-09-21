@@ -648,7 +648,7 @@ export default function App() {
                 ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
                 : "Full: all clearnet sites + remaining mail oracles. TLS children stay off on 1 GB unless Power is on."}
           </span>
-          {powerNote && <span className="font-mono text-[11px] text-fog-500">{powerNote}</span>}
+          {!powerOn && powerNote && <span className="font-mono text-[11px] text-fog-500">{powerNote}</span>}
         </div>
         <form
           className="mt-3 flex flex-col gap-2 sm:flex-row"

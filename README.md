@@ -61,6 +61,10 @@ Live console screenshots:
 - v1.6 likely hits + progress — [docs/screenshots/v16_mail_likely_hits.webp](docs/screenshots/v16_mail_likely_hits.webp)
 - v1.6 cases panel — [docs/screenshots/v16_cases_panel.webp](docs/screenshots/v16_cases_panel.webp)
 - v1.6 phone public pivots — [docs/screenshots/v16_phone_pivots.webp](docs/screenshots/v16_phone_pivots.webp)
+- v1.8 Power + batch queue — [docs/screenshots/v18_power_batch.webp](docs/screenshots/v18_power_batch.webp)
+- v1.8 batch recon — [docs/screenshots/v18_batch_queue.webp](docs/screenshots/v18_batch_queue.webp)
+- v1.8 watches / alert channels — [docs/screenshots/v18_alerts_timeline.webp](docs/screenshots/v18_alerts_timeline.webp)
+- v1.8 read-only share — [docs/screenshots/v18_share_readonly.webp](docs/screenshots/v18_share_readonly.webp)
 
 ### First recon
 
