@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SHARE_MAX_PER_CASE, SHARE_MAX_TOTAL } from "../shared/scan-limits.ts";
-import type { CaseShare, SavedCase, SharedCaseView } from "../shared/types.ts";
+import type { CaseShare, SavedCase, SharedCaseView, ShareRole } from "../shared/types.ts";
 import { casesDir, getCase } from "./cases.ts";
 
 const memory = new Map<string, CaseShare>();
@@ -83,6 +83,10 @@ function newToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
+function newAccessCode(): string {
+  return randomBytes(4).toString("hex");
+}
+
 export function listShares(caseId?: string): CaseShare[] {
   loadDisk();
   return [...memory.values()]
@@ -92,7 +96,13 @@ export function listShares(caseId?: string): CaseShare[] {
 
 export function getShare(token: string): CaseShare | null {
   loadDisk();
-  return memory.get(token) ?? null;
+  const direct = memory.get(token);
+  if (direct) return direct;
+  const lower = token.trim().toLowerCase();
+  if (lower.length >= 6 && lower.length <= 12) {
+    return [...memory.values()].find((s) => s.accessCode?.toLowerCase() === lower) ?? null;
+  }
+  return null;
 }
 
 export function shareIsLive(rec: CaseShare, now = Date.now()): boolean {
@@ -105,6 +115,7 @@ export function createShare(input: {
   caseId: string;
   expiresInHours?: number | null;
   label?: string;
+  role?: ShareRole;
 }): CaseShare {
   const rec = getCase(input.caseId);
   if (!rec) throw new Error("case not found");
@@ -119,12 +130,15 @@ export function createShare(input: {
     hours != null && Number.isFinite(hours) && hours > 0
       ? new Date(Date.now() + Math.trunc(hours) * 3600_000).toISOString()
       : undefined;
+  const role: ShareRole = input.role === "write" ? "write" : "read";
   return persistShare({
     token: newToken(),
     caseId: rec.id,
     createdAt: now,
     expiresAt,
     label: input.label?.trim() || undefined,
+    role,
+    accessCode: newAccessCode(),
   });
 }
 
@@ -164,8 +178,10 @@ export function sanitizeCase(share: CaseShare, rec: SavedCase): SharedCaseView {
     const { bodyExcerpt: _drop, ...rest } = row;
     return rest;
   });
+  const role: ShareRole = share.role === "write" ? "write" : "read";
   return {
-    readOnly: true,
+    readOnly: role !== "write",
+    role,
     token: share.token,
     createdAt: share.createdAt,
     expiresAt: share.expiresAt,
@@ -177,8 +193,14 @@ export function sanitizeCase(share: CaseShare, rec: SavedCase): SharedCaseView {
     foundRows,
     graph: rec.graph ?? rec.summary.graph,
     avatarClusters: rec.summary.avatarClusters,
+    identityClusters: rec.summary.identityClusters,
+    notes: rec.notes ?? [],
     progress: rec.summary.progress,
     profile: rec.summary.profile,
+    shareNote:
+      role === "write"
+        ? "Write share: anyone with this link can add operator notes on this case. Not a full team IdP — revoke to kill access. No per-user accounts."
+        : "Read-only public-OSINT snapshot. No env, keys, or private excerpts.",
   };
 }
 

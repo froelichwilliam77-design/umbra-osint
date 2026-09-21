@@ -6,6 +6,7 @@ services:
     environment:
       PORT: "43180"
       HOST: "0.0.0.0"
+      UMBRA_CASES_DIR: /data/cases
       # Clearnet by default. With `--profile tor` the app uses the sidecar SOCKS proxy.
       UMBRA_PROXY: ${UMBRA_PROXY:-}
       UMBRA_TLS: ${UMBRA_TLS:-auto}
@@ -13,6 +14,14 @@ services:
       UMBRA_PLAYWRIGHT_MAX: ${UMBRA_PLAYWRIGHT_MAX:-1}
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=512}
       HIBP_API_KEY: ${HIBP_API_KEY:-}
+      UMBRA_ALERT_WEBHOOK: ${UMBRA_ALERT_WEBHOOK:-}
+      UMBRA_ALERT_EMAIL: ${UMBRA_ALERT_EMAIL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      UMBRA_TELEGRAM_BOT_TOKEN: ${UMBRA_TELEGRAM_BOT_TOKEN:-}
+      UMBRA_TELEGRAM_CHAT_ID: ${UMBRA_TELEGRAM_CHAT_ID:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      NUMVERIFY_API_KEY: ${NUMVERIFY_API_KEY:-}
     volumes:
       - umbra-data:/data
     depends_on:

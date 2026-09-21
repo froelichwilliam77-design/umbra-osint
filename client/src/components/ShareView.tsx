@@ -3,7 +3,10 @@ import type { IdentityGraph, LedgerRow, SharedCaseView } from "@shared/types";
 import { useEffect, useState } from "react";
 import { GraphPanel } from "@/components/GraphPanel";
 import { AvatarClustersPanel } from "@/components/AvatarClustersPanel";
+import { IdentityClustersPanel } from "@/components/IdentityClustersPanel";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function shareRouteFromLocation(
   path = window.location.pathname,
@@ -23,6 +26,8 @@ export function shareRouteFromLocation(
 export function ShareView({ token, caseId }: { token: string; caseId?: string }) {
   const [view, setView] = useState<SharedCaseView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
 
   useEffect(() => {
     const url = caseId
@@ -56,7 +61,9 @@ export function ShareView({ token, caseId }: { token: string; caseId?: string })
   return (
     <div className="min-h-screen px-3 py-4 md:px-6">
       <header className="mb-4 rounded-xl border border-ink-600 bg-ink-900/80 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-accent">Read-only share</p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-accent">
+          {view.readOnly ? "Read-only share" : "Read-write share"}
+        </p>
         <h1 className="mt-2 text-2xl text-white">
           {view.mode} · {view.query}
         </h1>
@@ -65,7 +72,9 @@ export function ShareView({ token, caseId }: { token: string; caseId?: string })
           {view.expiresAt ? ` · expires ${new Date(view.expiresAt).toLocaleString()}` : " · no expiry"}
           {view.profile ? ` · ${view.profile}` : ""}
         </p>
-        <p className="mt-3 text-xs text-fog-500">{AUTHORIZED_USE} Public-OSINT summary only — no private keys.</p>
+        <p className="mt-3 text-xs text-fog-500">
+          {AUTHORIZED_USE} {view.shareNote ?? "Public-OSINT summary only — no private keys."}
+        </p>
       </header>
       {view.dossier && "email" in view.dossier && (
         <section className="mb-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
@@ -97,7 +106,57 @@ export function ShareView({ token, caseId }: { token: string; caseId?: string })
         </section>
       )}
       <AvatarClustersPanel clusters={view.avatarClusters} />
+      <IdentityClustersPanel clusters={view.identityClusters} />
       <GraphPanel graph={graph} onPivot={() => undefined} interactive={false} />
+      {(view.notes?.length || !view.readOnly) && (
+        <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+          <div className="text-xs uppercase tracking-wide text-fog-500">Operator notes</div>
+          {view.notes?.length ? (
+            <ul className="mt-2 space-y-2">
+              {view.notes.map((n) => (
+                <li key={n.id} className="rounded-lg border border-ink-700 bg-ink-950 px-2 py-2 text-sm text-fog-100">
+                  <div className="font-mono text-[10px] text-fog-500">
+                    {new Date(n.at).toLocaleString()} · {n.via}
+                  </div>
+                  {n.text}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-fog-500">No notes yet.</p>
+          )}
+          {!view.readOnly && (
+            <form
+              className="mt-3 flex flex-col gap-2 sm:flex-row"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!note.trim()) return;
+                setNoteBusy(true);
+                try {
+                  const res = await fetch(`/api/share/${encodeURIComponent(token)}/notes`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: note }),
+                  });
+                  const data = (await res.json()) as SharedCaseView & { error?: string };
+                  if (!res.ok) throw new Error(data.error || "Note failed");
+                  if (data.query) setView(data);
+                  setNote("");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setNoteBusy(false);
+                }
+              }}
+            >
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add an operator note" className="tap-lg flex-1" />
+              <Button type="submit" size="sm" className="tap-lg" disabled={noteBusy}>
+                Add note
+              </Button>
+            </form>
+          )}
+        </section>
+      )}
       <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70">
         <div className="border-b border-ink-600 px-3 py-2 text-sm text-fog-300">Found rows · {rows.length}</div>
         <ul className="divide-y divide-ink-700">

@@ -1,10 +1,19 @@
 import dns from "node:dns/promises";
 import tls from "node:tls";
 import { DKIM_SELECTORS } from "../shared/constants.ts";
+import type { ScanProfile } from "../shared/scan-limits.ts";
 import type { DkimSelector, DmarcRecord, HostDossier, LedgerRow, SpfRecord } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
+import {
+  ctSubdomains,
+  fetchCertificateTransparency,
+  fetchPublicDnsHistory,
+  hostOpenLinks,
+  lookupPtr,
+} from "./ct.ts";
 import { htmlTitle } from "./extract.ts";
 import { fetchFollow } from "./http.ts";
+import { peopleSearchLinks } from "./people.ts";
 import { SsrfError, assertSafeFetchTarget, resolvePublic } from "./ssrf.ts";
 
 async function safeResolve(domain: string, type: "A" | "AAAA" | "MX" | "NS" | "TXT" | "CNAME"): Promise<string[]> {
@@ -344,7 +353,7 @@ async function fetchCert(domain: string): Promise<HostDossier["cert"]> {
   });
 }
 
-export async function buildHostDossier(domain: string): Promise<HostDossier> {
+export async function buildHostDossier(domain: string, profile: ScanProfile = "full"): Promise<HostDossier> {
   await assertSafeFetchTarget(`https://${domain}/`);
   const [a, aaaa, mxRaw, ns, txt, cname, dmarcTxt, soa, caa, rdap, securityTxt, https, cert, dkim, bimi] =
     await Promise.all([
@@ -364,6 +373,13 @@ export async function buildHostDossier(domain: string): Promise<HostDossier> {
       lookupDkim(domain),
       lookupBimi(domain),
     ]);
+
+  const ptr = await lookupPtr(a, profile === "lean" ? 1 : 3);
+  const ct = await fetchCertificateTransparency(domain, profile).catch(() => undefined);
+  const dnsHistory =
+    profile === "lean" ? [] : await fetchPublicDnsHistory(domain).catch(() => [] as HostDossier["dnsHistory"]);
+  const subdomains = ctSubdomains(ct, domain);
+  const openLinks = [...hostOpenLinks(domain), ...peopleSearchLinks(domain, "host")];
 
   void resolvePublic;
 
@@ -387,6 +403,11 @@ export async function buildHostDossier(domain: string): Promise<HostDossier> {
     cert,
     dkim,
     bimi,
+    ct,
+    ptr,
+    dnsHistory: dnsHistory ?? [],
+    subdomains,
+    openLinks,
   };
 }
 
@@ -418,12 +439,12 @@ function hostRow(
   };
 }
 
-export const HOST_LEDGER_COUNT = 15;
+export const HOST_LEDGER_COUNT = 18;
 
 export async function runHostScan(
   scanId: string,
   domain: string,
-  opts: { onRow: (row: LedgerRow) => void; onDossier: (d: HostDossier) => void },
+  opts: { onRow: (row: LedgerRow) => void; onDossier: (d: HostDossier) => void; profile?: ScanProfile },
 ): Promise<HostDossier | undefined> {
   try {
     await assertSafeFetchTarget(`https://${domain}/`);
@@ -435,7 +456,7 @@ export async function runHostScan(
 
   let dossier: HostDossier;
   try {
-    dossier = await buildHostDossier(domain);
+    dossier = await buildHostDossier(domain, opts.profile ?? "full");
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     opts.onRow(hostRow(scanId, domain, "Host dossier", "dns", "error", reason));
@@ -695,6 +716,64 @@ export async function runHostScan(
       dossier.bimi?.present ? "found" : "miss",
       dossier.bimi?.present ? dossier.bimi.raw ?? "v=BIMI1" : `No TXT at default._bimi.${domain}`,
       { url: `default._bimi.${domain}`, method: "DNS" },
+    ),
+  );
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "Certificate Transparency",
+      "tls",
+      dossier.ct?.names.length ? "found" : "miss",
+      dossier.ct?.names.length
+        ? `${dossier.ct.count} CT name(s) via ${dossier.ct.source} · ${dossier.ct.names.slice(0, 8).join(", ")}`
+        : "No CT names harvested — crt.sh / Cert Spotter links stay in the dossier.",
+      {
+        url: `https://crt.sh/?q=${encodeURIComponent(domain)}`,
+        method: "GET",
+        metadata: {
+          extra: {
+            source: dossier.ct?.source ?? "",
+            names: (dossier.ct?.names ?? []).slice(0, 12).join(", "),
+            issuers: (dossier.ct?.issuers ?? []).slice(0, 4).join(", "),
+          },
+        },
+      },
+    ),
+  );
+  const historyBits = [
+    dossier.ptr?.length ? `PTR ${dossier.ptr.slice(0, 4).join(", ")}` : null,
+    dossier.dnsHistory?.length ? `${dossier.dnsHistory.length} public DNS rows` : null,
+    dossier.subdomains?.length ? `subdomains ${dossier.subdomains.slice(0, 6).join(", ")}` : null,
+  ].filter(Boolean);
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "DNS history / PTR",
+      "dns",
+      historyBits.length ? "found" : "miss",
+      historyBits.length
+        ? historyBits.join(" · ")
+        : "No PTR or public DNS-history rows (lean skips HackerTarget; no paid zone dumps).",
+      { url: domain, method: "DNS" },
+    ),
+  );
+  opts.onRow(
+    hostRow(
+      scanId,
+      domain,
+      "Public host links",
+      "search",
+      "found",
+      "RDAP, crt.sh, urlscan, and public DNS search URLs — no paid broker scrape.",
+      {
+        url: dossier.openLinks?.[0]?.url ?? `https://rdap.org/domain/${domain}`,
+        method: "LINK",
+        metadata: {
+          extra: Object.fromEntries((dossier.openLinks ?? []).slice(0, 12).map((l) => [l.label, l.url])),
+        },
+      },
     ),
   );
   return dossier;

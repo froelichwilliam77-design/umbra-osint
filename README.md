@@ -2,6 +2,8 @@
 
 Public-OSINT workstation for **handle**, **mail**, **host**, **phone**, and **crawl** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
+**v1.14.0** closes the remaining workstation gaps: reverse-image search URLs (Google Lens / Yandex / TinEye) on found avatars, Certificate Transparency + public DNS history on host, public paste harvest, stronger identity clustering with confidence, a printable client brief, deeper phone/people-search pivots, local volume path without Railway, optional read-write case shares, and Alerts/HIBP empty-state polish. Depth harvests stay cheap on **Lean** (1 GB) and open up on **Full / Power**.
+
 Umbra is not a mock. Handle mode walks WhatsMyName + Sherlock + Maigret overlays (**deduped unique platforms**; lean still ~250). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; **403 with missing-profile copy is miss**, while 429/451/CAPTCHA/WAF challenges stay **blocked**. Empty exist-strings (typical Sherlock status_code) are **not** counted as found without account evidence. Found/miss/blocked rows carry a **confidence** tier. **Lean** ranks API, **writing/blog**, **Reddit**, and high-signal sites first, skips chronically WAF-gated modules (Instagram/TikTok/…), and caps at **~250** handle sites. **Full** uses the complete unique map; **Power** (~8 GB Railway) can afford that map plus in-scan handle **variants**. Writing platforms (Medium, Substack, WordPress.com, Blogger, Tumblr, Dev.to, Hashnode, Ghost, Wattpad, AO3, FanFiction.net, write.as, and related) are tagged **`blog`** in the ledger and stay in the lean curated set. **Reddit** uses `/user/{account}/about.json` (pretty URL `https://www.reddit.com/user/{account}`); Power impersonates Reddit TLS; lean retries `old.reddit.com` when www 403s. JSON 404 is **miss**, “whoa there”/CAPTCHA is **blocked**. Mail and handle scans also harvest **public AI conversation shares** (`chatgpt.com/share/*`, Claude share/artifact links, and other documented public schemes) via web search + GET-verify, plus silent ChatGPT / Character.AI account-exists oracles. Ledger chips and the mail **AI chats** card are labeled **public share / account signal** — never private transcripts.
 
 Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, **Have I Been Pwned** when `HIBP_API_KEY` is set, handle + host pivots, open-in OSINT + public paste/stealer links, **AI chats** public-share harvest) and runs silent registration oracles — never SMTP or password-reset mail. **Lean** (Railway default) probes **proven** oracles only (GitHub, Microsoft, Gravatar, Discord, ChatGPT, …) and skips quarantined / chronically blocked modules. **Full** still ranks high-signal first, then the rest. Found rows surface immediately as **likely hits** while the scan continues.
@@ -18,7 +20,7 @@ Finished scans auto-save as **cases** (dossier + found rows + graph). With a dis
 
 In-app **Alerts / settings** shows which channels are on **without exposing secrets**, lists the env var names to set, and has a **Test alert** button. Configure vars in Railway → Variables — never paste tokens into the UI.
 
-Finished cases can mint **read-only share links** (`/share/:token` or `/c/:id?token=`) — dossier + found rows + graph, no private keys, optional expiry, revoke in the UI.
+Finished cases can mint **read-only** or **read-write share links** (`/share/:token` or a short join code). Read-only is dossier + found rows + graph. Write shares can append **operator notes** — anyone with the link can write notes. This is not a full team IdP (no per-user accounts, no SSO). Revoke to kill access.
 
 **Batch recon** pastes a multiline list of emails/handles/hosts/phones and queues **lean** scans serially (`maxConcurrentScans=1`). Skip invalid lines, cancel the queue, combined JSON/CSV/Markdown export when it finishes.
 
@@ -32,18 +34,25 @@ Paste an `https://` URL or **Crawl** a host for a bounded same-origin spider (25
 
 ```bash
 npm install
-npm run dev
+mkdir -p data/cases
+UMBRA_CASES_DIR="$PWD/data/cases" npm run dev
 ```
 
 - UI: http://127.0.0.1:43181
 - Engine: http://127.0.0.1:43180
+- Cases/watches persist under `data/cases` (and `_watches` / `_shares` beside them). Railway is not required.
+
+Without `UMBRA_CASES_DIR`, the UI falls back to IndexedDB in this browser.
+
+Copy [`.env.example`](.env.example) to `.env` for optional keys (`HIBP_API_KEY`, alert channels, Twilio/Numverify). Umbra never invents keys.
 
 Production-style (build the UI, one Node process):
 
 ```bash
 npm install
 npm run build
-npm start
+mkdir -p data/cases
+UMBRA_CASES_DIR="$PWD/data/cases" npm start
 ```
 
 Then open http://127.0.0.1:43180.
@@ -77,12 +86,12 @@ Live console screenshots:
 1. Accept the authorized-use gate.
 2. `octocat` in Auto/Handle — classified hits across the unique site map (lean ~250; Full = WMN + Sherlock + Maigret, deduped). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph. Variants of the seed (if enabled) recon a capped high-signal slice and appear as variant chips. Writing/blog chips (Medium, Substack, Dev.to, WordPress, …) show category **`blog`**. Reddit profiles (`/user/…`) are high-signal on lean and Full.
 3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (proven first on Lean). **Likely hits** appear while the scan continues. The **AI chats** card lists public share URLs that are open to read (if any) and search pivots; account-exists rows (ChatGPT, Gemini/Google, Copilot, …) are labeled **public share / account signal**, not private transcripts. **Auto-pivots** (default on) queues handle `press` (and host on Full). **Run pivots** still works if you turned auto-pivots off. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off with setup copy — Umbra cannot invent a key.
-4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
-5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
-6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases. **Share** mints a read-only public-OSINT link.
+4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS / Certificate Transparency.
+5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots and people-search links. No SMS.
+6. **Cases** — finished scans auto-save. Open / delete / export HTML client brief (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases. **Share** mints a read-only `/share/:token` link; **Write share** adds operator notes (not a full IdP).
 7. **Crawl** — `https://example.com` (or the Crawl chip / `crawl this host example.com`) walks same-origin pages, then optional pivots.
 8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts and on a first-seen timeline. Open **Alerts / settings** to see Telegram / Resend / SMTP / webhook status (no secrets) and send a **Test alert**.
-9. **Share** — from Cases, mint a read-only `/share/:token` link (optional expiry). Recipients see dossier + founds + graph without signing in. Revoke anytime.
+9. **Share** — from Cases, mint a read-only `/share/:token` link (optional expiry) or a **write share** + join code for operator notes. Recipients see dossier + founds + graph + identity clusters without signing in. Revoke anytime. This is a shared secret, not per-user auth.
 10. **Batch** — paste a list of identifiers. Lean scans run one at a time; export the combined queue when it finishes.
 11. **Power** — on ≥~1800 MB RAM, `UMBRA_POWER=1`, or the UI **Power** chip (confirm-gated on 1 GB). Allows Full + TLS impersonation. Playwright stays off. A banner explains Railway **Settings → Resources** when the cgroup is under 2 GB.
 
@@ -167,10 +176,10 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 
 | Mode | Pre-flight | Work |
 | --- | --- | --- |
-| **Handle** | length/charset regex | WhatsMyName + Sherlock + Maigret overlays + curated YAML. Dual-condition match + confidence. In-scan variants (capped). TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters. Auto-pivots to likely mail / related handles. Public AI-share harvest for the handle. |
-| **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in links, **AI chats** public shares) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. Auto-pivots → local-part handle (host on Full). |
-| **Host** | hostname sanity | RDAP, DNS, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN. |
-| **Phone** | E.164 / libphonenumber | Country, NANP region, line type, timezone hint, optional Twilio/Numverify carrier, public lookup pivots. Never SMS. |
+| **Handle** | length/charset regex | WhatsMyName + Sherlock + Maigret overlays + curated YAML. Dual-condition match + confidence. In-scan variants (capped). TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters + Lens/Yandex/TinEye reverse-image URLs. Identity clustering (name/handle/website/pHash) with confidence. Auto-pivots to likely mail / related handles. Public AI-share + paste harvest for the handle. Public people-search links. |
+| **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in + people-search links, **AI chats** public shares, **public pastes**) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. Auto-pivots → local-part handle (host on Full). |
+| **Host** | hostname sanity | RDAP, DNS (A/MX/TXT/NS/SOA/CAA), PTR, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN, **Certificate Transparency** (crt.sh / Cert Spotter), public DNS history (HackerTarget on Full/Power). |
+| **Phone** | E.164 / libphonenumber | Country, NANP region, line type, timezone hint, optional Twilio/Numverify/AbstractAPI/OpenCNAM carrier, public lookup + people-search pivots. Never SMS. |
 | **Crawl** | http(s) URL or `crawl this host …`; SSRF | Bounded same-origin spider (25 pages lean / 100 power). Harvests emails, usernames, links, security headers. No form submit, no SMTP/SMS. |
 | **Auto** | — | `@` → mail; phone-shaped → phone; `http(s)://` or “crawl this host” → crawl; dotted hostname with a TLD → host; otherwise handle. |
 
@@ -197,7 +206,7 @@ Local without Docker: TLS impersonation is **partial** until `curl-impersonate` 
 
 ### Mail safety
 
-Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Writing-platform oracles (Medium, WordPress.com, Tumblr, Hashnode, Substack, Wattpad, Issuu, Scribd, Academia.edu) are the same: availability/validate GETs or silent register prechecks — never magic-link or password-reset mail to the subject. Reddit uses `POST /api/check_email.json` (signup availability, not a password-reset). **AI chats** are public OSINT only: silent ChatGPT (`auth.openai.com/api/accounts/exists`) and Character.AI email-exists checks; Gmail gxlu is the Google/Gemini account signal; Microsoft GetCredentialType is the Copilot signal; Hugging Face validate-email is HuggingChat-eligible. Claude, Perplexity, Mistral, Grok, and Poe are **not** probed because login is magic-link (would email the subject). Public share URLs (`chatgpt.com/share/*`, `claude.ai/share/*`, and other documented schemes) are found via DuckDuckGo HTML search + GET-verify, or pivoted from found-row excerpts — Umbra never opens authenticated chats, cookies, inboxes, or non-public conversations. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names, dates, data classes). Without a key the HIBP oracle is omitted entirely — never a fake miss. Set `HIBP_API_KEY` in Railway Variables; Umbra cannot invent a key. Public paste/stealer pivots (Google paste search, gists, Hudson Rock, IntelX, LeakIX) are links only — no paid scraping.
+Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Writing-platform oracles (Medium, WordPress.com, Tumblr, Hashnode, Substack, Wattpad, Issuu, Scribd, Academia.edu) are the same: availability/validate GETs or silent register prechecks — never magic-link or password-reset mail to the subject. Reddit uses `POST /api/check_email.json` (signup availability, not a password-reset). **AI chats** are public OSINT only: silent ChatGPT (`auth.openai.com/api/accounts/exists`) and Character.AI email-exists checks; Gmail gxlu is the Google/Gemini account signal; Microsoft GetCredentialType is the Copilot signal; Hugging Face validate-email is HuggingChat-eligible. Claude, Perplexity, Mistral, Grok, and Poe are **not** probed because login is magic-link (would email the subject). Public share URLs (`chatgpt.com/share/*`, `claude.ai/share/*`, and other documented schemes) are found via DuckDuckGo HTML search + GET-verify, or pivoted from found-row excerpts — Umbra never opens authenticated chats, cookies, inboxes, or non-public conversations. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names, dates, data classes). Without a key the HIBP oracle is omitted entirely — never a fake miss. Set `HIBP_API_KEY` in Railway Variables; Umbra cannot invent a key. Public paste/stealer pivots (Google paste search, gists, Hudson Rock, IntelX, LeakIX) are links plus a DuckDuckGo HTML harvest of public paste URLs (pastebin, gists, rentry, dpaste, …) with GET-verify — no paid dark-web markets.
 
 ### Phone safety
 
@@ -239,14 +248,15 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 - `GET /api/cases/compare?a=&b=`
 - `GET /api/watches` · `POST /api/watches` `{ query, mode?, intervalHours? }` · `DELETE /api/watches/:id` · `POST /api/watches/:id/run`
 - `GET /api/alerts` · `GET /api/alerts/setup` · `POST /api/alerts/test` · `POST /api/alerts/:id/read`
-- `POST /api/cases/:id/share` `{ expiresInHours? }` · `GET /api/cases/:id/shares` · `GET /api/share/:token` · `GET /api/c/:id?token=` · `POST /api/shares/:token/revoke`
+- `POST /api/cases/:id/share` `{ expiresInHours?, label?, role?: "read"|"write" }` · `GET /api/cases/:id/shares` · `GET /api/share/:token` (token or 8-char join code) · `GET /api/c/:id?token=` · `POST /api/shares/:token/revoke` · `POST /api/share/:token/notes` `{ text }` (write shares) · `POST /api/cases/:id/notes`
+- `POST /api/image-reverse` `{ url?, dataUrl?, scanId? }` pHash + Lens/Yandex/TinEye URLs (no engine scrape)
 - `POST /api/batch` `{ text }` lean serial queue · `GET /api/batch/:id` · `POST /api/batch/:id/cancel` · `GET /api/batch/:id/export?format=json|csv|md`
 - `GET /api/schema` registry stats (`oraclesLean`)
 - `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / alert setup / shares / power flags + 1 GB banner
 
 ## Tests
 
-Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, lean ranking + chronic-block skip, writing/blog site priority, SSRF blocks, persistent cases + executive HTML, watch diffs + first-seen timeline, alert channels (webhook / Resend / Telegram) plus setup/test (no secrets in the payload), read-only share tokens, batch queue parse/cancel/export, power-mode caps (~1800 MB / UI Power / 1 GB banner), user-facing scan errors, and bounded crawl harvest/SSRF.
+Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, reverse-image URLs, identity-graph pivots + same-person clusters, Certificate Transparency / DNS-history parsers, public paste extractors, people-search URLs, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, lean ranking + chronic-block skip, writing/blog site priority, SSRF blocks, persistent cases + executive HTML client brief, watch diffs + first-seen timeline, alert channels (webhook / Resend / Telegram) plus setup/test (no secrets in the payload), read-only and write share tokens, batch queue parse/cancel/export, power-mode caps (~1800 MB / UI Power / 1 GB banner), user-facing scan errors, and bounded crawl harvest/SSRF.
 
 ## Environment
 
@@ -255,14 +265,14 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `PORT` / `UMBRA_PORT` | `43180` | Engine bind |
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
-| `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger (names, dates, data classes). When unset, HIBP is omitted (not a miss). Get a key at haveibeenpwned.com/API/Key — set it in Railway Variables, never in the UI. |
-| `UMBRA_CASES_DIR` | `/data/cases` if `/data` is writable, else unset | JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
+| `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger (names, dates, data classes) and Alerts / settings shows HIBP **configured**. When unset, HIBP is omitted (not a miss) and the HIBP row stays **not set**. Get a key at haveibeenpwned.com/API/Key — set it in Railway Variables, never in the UI. |
+| `UMBRA_CASES_DIR` | `/data/cases` if `/data` is writable, else unset | JSON volume for cases. Local: `mkdir -p data/cases && UMBRA_CASES_DIR=$PWD/data/cases npm run dev`. Without it, the UI uses IndexedDB/localStorage. |
+| `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts (operator webhook). Alerts / settings lights up **webhook** when set. |
+| `RESEND_API_KEY` or `UMBRA_RESEND_API_KEY` | unset | Resend HTTPS email. Preferred over SMTP when both are set. Needs `UMBRA_ALERT_EMAIL`. Alerts / settings lights up **resend**. |
+| `UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID` | unset | Telegram bot alert (operator chat). No SMS. Alerts / settings lights up **telegram**. |
 | `UMBRA_WATCHES_DIR` | `<cases>/_watches` or `/data/watches` | Watch + alert JSON. Same volume as cases. |
-| `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts (operator webhook). |
 | `UMBRA_ALERT_EMAIL` | unset | Operator inbox for watch alerts. Never the investigation subject. |
 | `UMBRA_SMTP_HOST` / `UMBRA_SMTP_PORT` / `UMBRA_SMTP_USER` / `UMBRA_SMTP_PASS` / `UMBRA_SMTP_FROM` | unset | SMTP alert mail (587 STARTTLS, 465 implicit TLS). Used when Resend is not set. |
-| `RESEND_API_KEY` or `UMBRA_RESEND_API_KEY` | unset | Resend HTTPS email. Preferred over SMTP when both are set. Needs `UMBRA_ALERT_EMAIL`. |
-| `UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID` | unset | Telegram bot alert (operator chat). No SMS. |
 | `UMBRA_WATCH_MIN_MS` | `3600000` (1h) | Minimum watch interval (tests may lower this). Default interval is 24h. |
 | `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 250 curated + high-signal sites (chronic WAF skipped); `full` is the complete unique clearnet map (WMN + Sherlock + Maigret, fast tier first). Does **not** by itself enable TLS on 1 GB. |
 | `UMBRA_VARIANTS` | `1` | `0` disables in-scan handle mutations. |
@@ -288,6 +298,8 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
 | `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
+| `ABSTRACTAPI_KEY` or `ABSTRACT_PHONE_API_KEY` | unset | Optional AbstractAPI phone intelligence. Skip if unset. |
+| `OPENCNAM_SID` + `OPENCNAM_TOKEN` | unset | Optional OpenCNAM listing. Skip if unset. |
 | `WMN_URL` / `SHERLOCK_URL` / `MAIGRET_URL` | upstream main | Overrides for `npm run sync:wmn` |
 
 ## Optional Playwright / TLS (local)

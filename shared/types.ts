@@ -51,6 +51,7 @@ export interface MetadataCard {
   website?: string;
   extra?: Record<string, string | number | boolean | null>;
   phash?: string;
+  reverseImage?: ReverseImageLink[];
 }
 
 export interface LedgerRow {
@@ -144,6 +145,28 @@ export interface MailDossier {
   hibp?: HibpDossier;
   /** Public AI-chat OSINT: account signals + readable share URLs. Never private transcripts. */
   aiChats?: AiChatDossier;
+  pastes?: PasteDossier;
+  peopleLinks?: { label: string; url: string }[];
+  reverseImage?: ReverseImageLink[];
+}
+
+export interface ReverseImageLink {
+  engine: string;
+  url: string;
+}
+
+export interface PasteHit {
+  site: string;
+  url: string;
+  title?: string;
+  snippet?: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface PasteDossier {
+  disclaimer: string;
+  searchLinks: { label: string; url: string }[];
+  hits: PasteHit[];
 }
 
 export interface AiPublicShare {
@@ -256,6 +279,28 @@ export interface HostDossier {
   };
   dkim: DkimSelector[];
   bimi?: { present: boolean; raw?: string };
+  /** Certificate Transparency names (crt.sh / Cert Spotter). */
+  ct?: HostCt;
+  /** Reverse DNS for A records. */
+  ptr?: string[];
+  /** Extra public DNS text (HackerTarget etc.) — never paid zone dumps. */
+  dnsHistory?: DnsHistoryRecord[];
+  subdomains?: string[];
+  openLinks?: { label: string; url: string }[];
+}
+
+export interface HostCt {
+  source: string;
+  names: string[];
+  issuers: string[];
+  count: number;
+  firstSeen?: string;
+  lastSeen?: string;
+}
+
+export interface DnsHistoryRecord {
+  type: string;
+  value: string;
 }
 
 export interface CrawlDossier {
@@ -293,11 +338,12 @@ export interface PhoneDossier {
   pivots: string[];
   lookups: { source: string; status: "found" | "miss" | "skipped" | "blocked" | "error"; detail?: string }[];
   openLinks: { label: string; url: string }[];
+  peopleLinks?: { label: string; url: string }[];
 }
 
 export interface GraphNode {
   id: string;
-  kind: "handle" | "mail" | "host" | "phone" | "crawl" | "profile" | "avatar" | "oracle";
+  kind: "handle" | "mail" | "host" | "phone" | "crawl" | "profile" | "avatar" | "oracle" | "cluster";
   label: string;
   status?: LedgerStatus;
   url?: string;
@@ -327,6 +373,24 @@ export interface AvatarCluster {
   avatarUrls: string[];
   distanceMax: number;
   members?: AvatarClusterMember[];
+}
+
+export interface IdentityClusterMember {
+  site: string;
+  url: string;
+  handle?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  phash?: string;
+}
+
+export interface IdentityCluster {
+  id: string;
+  label: string;
+  kind: "avatar" | "name" | "handle" | "website" | "mixed";
+  confidence: number;
+  reasons: string[];
+  members: IdentityClusterMember[];
 }
 
 export interface ScanCompare {
@@ -362,6 +426,7 @@ export interface ScanSummary {
   dossier?: MailDossier | HostDossier | PhoneDossier | CrawlDossier;
   graph?: IdentityGraph;
   avatarClusters?: AvatarCluster[];
+  identityClusters?: IdentityCluster[];
   includeNsfw: boolean;
   siteCount: number;
   profile?: "lean" | "full";
@@ -382,6 +447,7 @@ export type ScanEvent =
   | { type: "dossier"; dossier: MailDossier | HostDossier | PhoneDossier | CrawlDossier }
   | { type: "graph"; graph: IdentityGraph }
   | { type: "clusters"; clusters: AvatarCluster[] }
+  | { type: "identity"; clusters: IdentityCluster[] }
   | { type: "progress"; progress: ScanProgress }
   | { type: "notice"; message: string }
   | { type: "done"; scan: ScanSummary }
@@ -403,6 +469,13 @@ export interface SchemaStats {
   oraclesLean?: number;
 }
 
+export interface CaseNote {
+  id: string;
+  at: string;
+  text: string;
+  via: "operator" | "share";
+}
+
 export interface SavedCase {
   id: string;
   query: string;
@@ -412,6 +485,7 @@ export interface SavedCase {
   summary: ScanSummary;
   foundRows: LedgerRow[];
   graph?: IdentityGraph;
+  notes?: CaseNote[];
 }
 
 export interface FoundSnapshot {
@@ -463,6 +537,8 @@ export interface WatchAlert {
   channelsDelivered?: AlertChannelDelivery;
 }
 
+export type ShareRole = "read" | "write";
+
 export interface CaseShare {
   token: string;
   caseId: string;
@@ -470,10 +546,15 @@ export interface CaseShare {
   expiresAt?: string;
   revokedAt?: string;
   label?: string;
+  /** Default read. Write tokens can append operator notes — not a full IdP. */
+  role?: ShareRole;
+  /** Short join code (optional). Anyone with the code has the same role as the token. */
+  accessCode?: string;
 }
 
 export interface SharedCaseView {
-  readOnly: true;
+  readOnly: boolean;
+  role: ShareRole;
   token: string;
   createdAt: string;
   expiresAt?: string;
@@ -485,8 +566,11 @@ export interface SharedCaseView {
   foundRows: LedgerRow[];
   graph?: IdentityGraph;
   avatarClusters?: AvatarCluster[];
+  identityClusters?: IdentityCluster[];
+  notes?: CaseNote[];
   progress: ScanProgress;
   profile?: "lean" | "full";
+  shareNote?: string;
 }
 
 export type BatchJobStatus = "queued" | "running" | "done" | "cancelled" | "skipped" | "error";

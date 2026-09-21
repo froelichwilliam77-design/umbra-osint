@@ -25,6 +25,7 @@ import { CasesPanel, openSavedCase } from "@/components/CasesPanel";
 import { AlertsPanel } from "@/components/AlertsPanel";
 import { BatchPanel } from "@/components/BatchPanel";
 import { AvatarClustersPanel } from "@/components/AvatarClustersPanel";
+import { IdentityClustersPanel } from "@/components/IdentityClustersPanel";
 import { ShareView, shareRouteFromLocation } from "@/components/ShareView";
 import { VirtualLedger } from "@/components/VirtualLedger";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -396,6 +397,9 @@ export default function App() {
       if (event.type === "graph") setGraph(event.graph);
       if (event.type === "clusters") {
         setScan((s) => (s ? { ...s, avatarClusters: event.clusters } : s));
+      }
+      if (event.type === "identity") {
+        setScan((s) => (s ? { ...s, identityClusters: event.clusters } : s));
       }
       if (event.type === "error") setError(event.message);
       if (event.type === "done") {
@@ -1029,6 +1033,7 @@ export default function App() {
       )}
       <div className={scan && isMail(scan.dossier) ? "hidden md:block" : undefined}>
         <AvatarClustersPanel clusters={scan?.avatarClusters} />
+        <IdentityClustersPanel clusters={scan?.identityClusters} />
         <GraphPanel
           graph={graph}
           onPivot={pivotTo}
@@ -1201,6 +1206,26 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
         </div>
       ) : null}
       {selected.phash && <Field label="Avatar pHash" value={selected.phash} />}
+      {selected.metadata?.avatarUrl && (
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { engine: "Google Lens", url: `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(selected.metadata.avatarUrl)}` },
+            { engine: "Yandex", url: `https://yandex.com/images/search?rpt=imageview&url=${encodeURIComponent(selected.metadata.avatarUrl)}` },
+            { engine: "TinEye", url: `https://tineye.com/search?url=${encodeURIComponent(selected.metadata.avatarUrl)}` },
+          ].map((l) => (
+            <a
+              key={l.engine}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fog-300 hover:border-accent hover:text-fog-100"
+            >
+              <ExternalLink className="h-3 w-3" />
+              {l.engine}
+            </a>
+          ))}
+        </div>
+      )}
       {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (
         <div className="rounded-lg border border-ink-600 bg-ink-950 p-3">
@@ -1439,6 +1464,43 @@ function MailCards({
           </div>
         ) : null}
       </Card>
+      <Card icon={<Search className="h-4 w-4" />} title="Public pastes">
+        <p className="text-[11px] leading-snug text-fog-500">
+          {dossier.pastes?.disclaimer ??
+            "Public paste search only. No paid dark-web markets."}
+        </p>
+        {dossier.pastes?.hits.length ? (
+          <ul className="mt-2 max-h-36 space-y-1 overflow-auto text-xs text-fog-300">
+            {dossier.pastes.hits.map((h) => (
+              <li key={h.url}>
+                <a className="text-accent hover:underline" href={h.url} target="_blank" rel="noreferrer">
+                  {h.site}
+                  {h.title ? ` — ${h.title}` : ""}
+                </a>
+                <span className="ml-1 font-mono text-[10px] text-fog-500">{h.confidence}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-fog-100">No public paste URLs harvested yet. Search pivots stay below.</p>
+        )}
+        {dossier.pastes?.searchLinks?.length ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {dossier.pastes.searchLinks.map((l) => (
+              <a
+                key={l.label}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="tap-lg inline-flex items-center gap-1 rounded border border-ink-600 px-2 py-1 font-mono text-[10px] uppercase text-fog-300 hover:border-accent hover:text-fog-100"
+              >
+                <ExternalLink className="h-3 w-3" />
+                {l.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+      </Card>
       <Card icon={<Globe className="h-4 w-4" />} title="MX / auth" className="mail-extra">
         {dossier.mx.length === 0 && <p className="text-sm text-fog-500">No MX records</p>}
         {dossier.mx.slice(0, 3).map((m) => (
@@ -1468,9 +1530,24 @@ function MailCards({
             <div>
               <p>{dossier.gravatar.displayName ?? "Profile present"}</p>
               <p className="font-mono text-[11px] text-fog-500">md5 {dossier.gravatar.hash}</p>
-              {dossier.gravatar.sha256 && (
-                <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
-              )}
+            {dossier.gravatar?.sha256 && (
+              <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
+            )}
+            {dossier.reverseImage?.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {dossier.reverseImage.map((l) => (
+                  <a
+                    key={l.engine}
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-[10px] uppercase text-accent hover:underline"
+                  >
+                    {l.engine}
+                  </a>
+                ))}
+              </div>
+            ) : null}
             </div>
           </div>
         ) : (
@@ -1501,7 +1578,9 @@ function MailCards({
         ) : null}
         {dossier.openLinks?.length ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {dossier.openLinks.map((l) => (
+            {[...dossier.openLinks, ...(dossier.peopleLinks ?? [])]
+              .filter((l, i, arr) => arr.findIndex((x) => x.label === l.label) === i)
+              .map((l) => (
               <a
                 key={l.label}
                 href={l.url}
@@ -1565,7 +1644,22 @@ function PhoneCards({ dossier }: { dossier: PhoneDossier }) {
             </a>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-fog-300">No SMS. Optional Twilio/Numverify keys add carrier names.</p>
+        <p className="mt-2 text-[11px] text-fog-300">No SMS. Optional Twilio/Numverify/AbstractAPI/OpenCNAM keys add carrier names.</p>
+        {(dossier.peopleLinks ?? []).length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {dossier.peopleLinks!.map((l) => (
+              <a
+                key={l.label}
+                className="inline-flex items-center gap-1 rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fog-100 hover:border-accent"
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -1617,6 +1711,19 @@ function HostCards({ dossier }: { dossier: HostDossier }) {
             TXT {t}
           </p>
         ))}
+        {dossier.ptr?.length ? (
+          <p className="font-mono text-[11px] text-fog-300">PTR {dossier.ptr.slice(0, 3).join(", ")}</p>
+        ) : null}
+        {dossier.ct?.names.length ? (
+          <p className="mt-1 truncate font-mono text-[11px] text-signal-found">
+            CT {dossier.ct.count} · {dossier.ct.names.slice(0, 4).join(", ")}
+          </p>
+        ) : null}
+        {dossier.subdomains?.length ? (
+          <p className="truncate font-mono text-[11px] text-fog-500">
+            sub {dossier.subdomains.slice(0, 6).join(", ")}
+          </p>
+        ) : null}
         <p className="mt-1 font-mono text-[11px] text-fog-300">
           DKIM {dossier.dkim.length ? dossier.dkim.map((d) => d.selector).join(", ") : "none"}
           {dossier.bimi?.present ? " · BIMI" : ""}
@@ -1665,6 +1772,21 @@ function HostCards({ dossier }: { dossier: HostDossier }) {
             </div>
           </div>
         )}
+        {dossier.openLinks?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {dossier.openLinks.slice(0, 8).map((l) => (
+              <a
+                key={l.label}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-[10px] uppercase text-accent hover:underline"
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
       </Card>
     </div>
   );

@@ -11,6 +11,7 @@ const KIND_TONE: Record<string, string> = {
   profile: "border-ink-600 bg-ink-950",
   oracle: "border-signal-escalate/40 bg-signal-escalate/10",
   avatar: "border-ink-600 bg-ink-800",
+  cluster: "border-signal-found/40 bg-signal-found/10",
 };
 
 export function GraphPanel({

@@ -1,5 +1,14 @@
 import type { AvatarCluster } from "@shared/types";
 
+function reverseLinks(imageUrl: string) {
+  const enc = encodeURIComponent(imageUrl);
+  return [
+    { engine: "Lens", url: `https://lens.google.com/uploadbyurl?url=${enc}` },
+    { engine: "Yandex", url: `https://yandex.com/images/search?rpt=imageview&url=${enc}` },
+    { engine: "TinEye", url: `https://tineye.com/search?url=${enc}` },
+  ];
+}
+
 export function AvatarClustersPanel({ clusters }: { clusters?: AvatarCluster[] | null }) {
   if (!clusters?.length) return null;
   return (
@@ -42,6 +51,21 @@ export function AvatarClustersPanel({ clusters }: { clusters?: AvatarCluster[] |
                       <div className="h-16 w-16 rounded-full border border-ink-600 bg-ink-800" />
                     )}
                     <span className="w-full truncate text-center font-mono text-[10px] text-fog-100">{m.site}</span>
+                    {m.avatarUrl && (
+                      <span className="flex flex-wrap justify-center gap-1">
+                        {reverseLinks(m.avatarUrl).map((l) => (
+                          <a
+                            key={l.engine}
+                            href={l.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-mono text-[9px] text-accent hover:underline"
+                          >
+                            {l.engine}
+                          </a>
+                        ))}
+                      </span>
+                    )}
                   </a>
                 ))}
               </div>

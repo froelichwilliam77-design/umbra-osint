@@ -19,6 +19,7 @@ import {
   importCasePayload,
   listCases,
   persistCase,
+  appendCaseNote,
 } from "./cases.ts";
 import {
   createWatch,
@@ -48,7 +49,11 @@ import {
   sharePath,
   shareQueryPath,
   sharesPersistMode,
+  getShare,
+  shareIsLive,
 } from "./shares.ts";
+import { phashFromDataUrl, reverseFromPublicUrl, reverseImageUploadLinks } from "./reverse-image.ts";
+import { hamming } from "./phash.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -246,18 +251,20 @@ app.get("/api/cases/:id/shares", async (req, reply) => {
 
 app.post("/api/cases/:id/share", async (req, reply) => {
   const { id } = req.params as { id: string };
-  const body = (req.body ?? {}) as { expiresInHours?: number | null; label?: string };
+  const body = (req.body ?? {}) as { expiresInHours?: number | null; label?: string; role?: "read" | "write" };
   try {
     const rec = createShare({
       caseId: id,
       expiresInHours: body.expiresInHours,
       label: body.label,
+      role: body.role,
     });
     return {
       ...rec,
       path: sharePath(rec.token),
       altPath: shareQueryPath(rec.caseId, rec.token),
-      readOnly: true,
+      joinPath: rec.accessCode ? `/share/${rec.accessCode}` : undefined,
+      readOnly: rec.role !== "write",
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -295,6 +302,73 @@ app.get("/api/c/:id", async (req, reply) => {
   const view = publicShareView(token, id);
   if (!view) return reply.code(404).send({ error: "share not found, expired, or revoked" });
   return view;
+});
+
+app.post("/api/cases/:id/notes", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const body = (req.body ?? {}) as { text?: string };
+  try {
+    const rec = appendCaseNote(id, body.text ?? "", "operator");
+    if (!rec) return reply.code(404).send({ error: "case not found" });
+    return rec;
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/share/:token/notes", async (req, reply) => {
+  const { token } = req.params as { token: string };
+  const share = getShare(token);
+  if (!share || !shareIsLive(share)) return reply.code(404).send({ error: "share not found, expired, or revoked" });
+  if (share.role !== "write") {
+    return reply.code(403).send({ error: "This share is read-only. Mint a write share to add operator notes." });
+  }
+  const body = (req.body ?? {}) as { text?: string };
+  try {
+    const rec = appendCaseNote(share.caseId, body.text ?? "", "share");
+    if (!rec) return reply.code(404).send({ error: "case not found" });
+    const view = publicShareView(share.token);
+    return view ?? rec;
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/image-reverse", async (req, reply) => {
+  const body = (req.body ?? {}) as { url?: string; dataUrl?: string; scanId?: string };
+  const url = body.url?.trim();
+  const dataUrl = body.dataUrl?.trim();
+  if (!url && !dataUrl) {
+    return reply.code(400).send({ error: "url or dataUrl is required" });
+  }
+  let phash: string | undefined;
+  let reverseImage = reverseImageUploadLinks();
+  if (url) {
+    const live = await reverseFromPublicUrl(url);
+    phash = live.phash;
+    reverseImage = live.reverseImage.length ? live.reverseImage : reverseImage;
+  } else if (dataUrl) {
+    phash = phashFromDataUrl(dataUrl);
+  }
+  const matches: { site: string; url: string; distance: number }[] = [];
+  if (phash && body.scanId) {
+    const stored = getScan(body.scanId);
+    for (const row of stored?.rows ?? []) {
+      if (!row.phash) continue;
+      const d = hamming(phash, row.phash);
+      if (d <= 10) {
+        matches.push({ site: row.site, url: row.profileUrl || row.url, distance: d });
+      }
+    }
+  }
+  return {
+    phash,
+    reverseImage,
+    matches,
+    note: url
+      ? "Open Lens / Yandex / TinEye in a new tab. Umbra does not scrape those engines."
+      : "No public image URL — upload the file on Lens / Yandex / TinEye. pHash still matches avatars in the current scan.",
+  };
 });
 
 app.get("/api/batch", async () => ({ batches: listBatches() }));

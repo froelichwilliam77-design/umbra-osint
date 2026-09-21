@@ -2,6 +2,9 @@ import dns from "node:dns/promises";
 import { ROLE_LOCAL_PARTS } from "../shared/constants.ts";
 import type { LedgerRow, MailDossier } from "../shared/types.ts";
 import { aiChatProbeCount, annotateAiOracle, emptyAiChatDossier } from "./ai-chats.ts";
+import { emptyPasteDossier, pasteProbeCount } from "./pastes.ts";
+import { peopleSearchLinks } from "./people.ts";
+import { reverseImageLinks } from "./reverse-image.ts";
 import { analyzeLocalPart } from "./detect.ts";
 import type { OracleVerdict } from "./oracles.ts";
 import { HostPool, hostFromUrl } from "./concurrency.ts";
@@ -20,7 +23,7 @@ export { selectMailOracles } from "./mail-priority.ts";
 
 export function mailScanSiteCount(profile?: ScanProfile, power?: boolean): number {
   const oracles = selectMailOracles(loadSchema().oracles, { profile });
-  return oracles.length + 8 + aiChatProbeCount(profile ?? "full", power);
+  return oracles.length + 8 + aiChatProbeCount(profile ?? "full", power) + pasteProbeCount(profile ?? "full", power);
 }
 
 function guessProvider(domain: string, mx: { exchange: string }[]): string | undefined {
@@ -168,6 +171,9 @@ export async function buildMailDossier(email: string): Promise<MailDossier> {
     openLinks: mailOpenLinks(normalized, gravatar.hash, gravatar.sha256),
     hibp,
     aiChats: emptyAiChatDossier(normalized),
+    pastes: emptyPasteDossier(normalized),
+    peopleLinks: peopleSearchLinks(normalized, "mail"),
+    reverseImage: gravatar.avatarUrl ? reverseImageLinks(gravatar.avatarUrl) : [],
   };
 }
 
