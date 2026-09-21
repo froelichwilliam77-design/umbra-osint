@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { alertChannels, alertEmailSubject, deliverAlert } from "../server/alerts.ts";
+import { alertChannels, alertEmailSubject, alertSetup, deliverAlert, sendTestAlert } from "../server/alerts.ts";
 import { formatRfc822, smtpConfigured } from "../server/smtp.ts";
 import type { WatchAlert } from "../shared/types.ts";
 
@@ -95,5 +95,36 @@ describe("alert channels", () => {
     expect(hits.some((u) => u.includes("hooks.example"))).toBe(true);
     expect(hits.some((u) => u.includes("resend.com"))).toBe(true);
     expect(hits.some((u) => u.includes("api.telegram.org"))).toBe(true);
+  });
+
+  it("describes configured channels without exposing secrets", () => {
+    process.env.UMBRA_TELEGRAM_BOT_TOKEN = "123:secret-token-value";
+    process.env.UMBRA_TELEGRAM_CHAT_ID = "42";
+    process.env.HIBP_API_KEY = "hibp-secret";
+    const setup = alertSetup();
+    expect(setup.channels.telegram).toBe(true);
+    expect(setup.hibp.configured).toBe(true);
+    const blob = JSON.stringify(setup);
+    expect(blob).not.toMatch(/secret-token-value/);
+    expect(blob).not.toMatch(/hibp-secret/);
+    expect(setup.hints.telegram.vars).toContain("UMBRA_TELEGRAM_BOT_TOKEN");
+    expect(setup.note).toMatch(/operator inbox/i);
+  });
+
+  it("sends a test alert to configured channels only", async () => {
+    process.env.UMBRA_ALERT_WEBHOOK = "https://hooks.example/umbra";
+    delete process.env.RESEND_API_KEY;
+    delete process.env.UMBRA_TELEGRAM_BOT_TOKEN;
+    vi.stubGlobal(
+      "fetch",
+      async (input: RequestInfo | URL) => {
+        expect(String(input)).toContain("hooks.example");
+        return new Response("{}", { status: 200 });
+      },
+    );
+    const result = await sendTestAlert();
+    expect(result.ok).toBe(true);
+    expect(result.delivered.webhook).toBe(true);
+    expect(result.message).toMatch(/Test alert sent/);
   });
 });

@@ -10,7 +10,7 @@ import {
 import { HostPool, hostFromUrl } from "./concurrency.ts";
 import { fetchImpersonate, impersonateAvailable, shouldImpersonate } from "./curl-impersonate.ts";
 import { extractMetadata } from "./extract.ts";
-import { fetchPublic, jitter, retryAfterMs, type HttpRequest, type HttpResponse } from "./http.ts";
+import { fetchPublic, fetchPublicRetry, jitter, retryAfterMs, type HttpRequest, type HttpResponse } from "./http.ts";
 import {
   fetchPlaywright,
   playwrightEnabled,
@@ -66,11 +66,11 @@ async function fetchProbe(req: HttpRequest, protection?: string[]): Promise<Http
     const r = await fetchImpersonate(req);
     if (r.status > 0) return r;
   }
-  let res = await fetchPublic(req);
+  let res = await fetchPublicRetry(req);
   if (res.status === 429 || res.status === 503) {
     const wait = retryAfterMs(res.headers, res.status === 429 ? 800 : 500);
     await jitter(wait, wait + 400);
-    res = await fetchPublic(req);
+    res = await fetchPublicRetry(req);
   }
   if (
     impersonateAvailable() &&

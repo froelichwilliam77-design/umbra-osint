@@ -5,7 +5,7 @@ import { scanLimitsPublic } from "./limits.ts";
 import { memorySnapshot } from "./memory.ts";
 import { casesPersistMode } from "./cases.ts";
 import { powerPublic } from "./power.ts";
-import { alertChannels, alertWebhookUrl } from "./alerts.ts";
+import { alertChannels, alertSetup, alertWebhookUrl } from "./alerts.ts";
 import { sharesPersistMode } from "./shares.ts";
 import { watchesPersistMode } from "./watches.ts";
 import {
@@ -24,6 +24,9 @@ export async function healthPayload() {
     warning: AUTHORIZED_USE,
     proxy: Boolean(process.env.UMBRA_PROXY),
     hibp: Boolean(process.env.HIBP_API_KEY?.trim()),
+    hibpNote: process.env.HIBP_API_KEY?.trim()
+      ? "HIBP live — breaches land in the mail dossier."
+      : "Set HIBP_API_KEY in Railway Variables for Have I Been Pwned. Without it the HIBP card stays off (not a fake miss).",
     cases: { persist: casesPersistMode() },
     shares: { persist: sharesPersistMode() },
     watches: {
@@ -31,6 +34,7 @@ export async function healthPayload() {
       webhook: Boolean(alertWebhookUrl()),
       channels: alertChannels(),
     },
+    alerts: alertSetup(),
     power: powerPublic(),
     playwright: {
       enabled: playwrightEnabled(),

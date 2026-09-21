@@ -28,11 +28,10 @@ describe("mail oracle priority + lean skip", () => {
     expect(lean.some((o) => o.id === "github")).toBe(true);
     expect(lean.some((o) => o.id === "twitter")).toBe(false);
     expect(lean.some((o) => o.id === "amocrm")).toBe(false);
+    expect(lean.some((o) => o.id === "netflix")).toBe(false);
     expect(full.some((o) => o.id === "twitter")).toBe(true);
     expect(lean.length).toBeLessThan(full.length);
-    expect(lean[0].id).toBeDefined();
-    const leanIds = lean.map((o) => o.id);
-    expect(leanIds.indexOf("github")).toBeLessThan(leanIds.indexOf("calendly") === -1 ? lean.length : leanIds.indexOf("calendly"));
+    expect(lean.every((o) => HIGH_SIGNAL_ORACLES.has(o.id) || HIGH_SIGNAL_ORACLES.has(o.handler))).toBe(true);
   });
 
   it("omits HIBP unless a key is present", () => {

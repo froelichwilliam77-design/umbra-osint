@@ -2,9 +2,9 @@
 
 Public-OSINT workstation for **handle**, **mail**, **host**, **phone**, and **crawl** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
-Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason.
+Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason. **Lean** ranks API and high-signal sites first, skips chronically WAF-gated modules (Instagram/TikTok/…), and caps at **~250** handle sites.
 
-Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, **Have I Been Pwned** when `HIBP_API_KEY` is set, handle + host pivots, open-in OSINT links) and runs silent registration oracles — never SMTP or password-reset mail. **Lean** (Railway default) probes high-signal oracles first (GitHub, Microsoft, Gravatar, Discord, …) and skips quarantined / chronically blocked modules. **Full** still ranks high-signal first, then the rest. Found rows surface immediately as **likely hits** while the scan continues.
+Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, **Have I Been Pwned** when `HIBP_API_KEY` is set, handle + host pivots, open-in OSINT + public paste/stealer links) and runs silent registration oracles — never SMTP or password-reset mail. **Lean** (Railway default) probes **proven** oracles only (GitHub, Microsoft, Gravatar, Discord, …) and skips quarantined / chronically blocked modules. **Full** still ranks high-signal first, then the rest. Found rows surface immediately as **likely hits** while the scan continues.
 
 Host mode pulls RDAP, DNS, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS headers/title, and the TLS certificate.
 
@@ -15,6 +15,8 @@ Finished scans auto-save as **cases** (dossier + found rows + graph). With a dis
 - `UMBRA_ALERT_WEBHOOK` JSON POST
 - Email via **SMTP** (`UMBRA_SMTP_*` + `UMBRA_ALERT_EMAIL`) **or** **Resend** (`RESEND_API_KEY` / `UMBRA_RESEND_API_KEY` + `UMBRA_ALERT_EMAIL`)
 - **Telegram** (`UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID`)
+
+In-app **Alerts / settings** shows which channels are on **without exposing secrets**, lists the env var names to set, and has a **Test alert** button. Configure vars in Railway → Variables — never paste tokens into the UI.
 
 Finished cases can mint **read-only share links** (`/share/:token` or `/c/:id?token=`) — dossier + found rows + graph, no private keys, optional expiry, revoke in the UI.
 
@@ -65,20 +67,22 @@ Live console screenshots:
 - v1.8 batch recon — [docs/screenshots/v18_batch_queue.webp](docs/screenshots/v18_batch_queue.webp)
 - v1.8 watches / alert channels — [docs/screenshots/v18_alerts_timeline.webp](docs/screenshots/v18_alerts_timeline.webp)
 - v1.8 read-only share — [docs/screenshots/v18_share_readonly.webp](docs/screenshots/v18_share_readonly.webp)
+- v1.9 phone mail (HIBP + paste pivots) — [docs/screenshots/v19_phone_mail_hibp.png](docs/screenshots/v19_phone_mail_hibp.png)
+- v1.9 phone Alerts / settings — [docs/screenshots/v19_phone_alerts_setup.png](docs/screenshots/v19_phone_alerts_setup.png)
 
 ### First recon
 
 1. Accept the authorized-use gate.
 2. `octocat` in Auto/Handle — classified hits across **1001** sites (961 clearnet). This upgrade local run: **197 found** / 503 miss / 170 blocked / **40 escalate** on 961 clearnet (v1.3.0: 193 found / 461 miss / 178 blocked / 105 escalate on 963). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (high-signal first). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (proven first on Lean). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set (breach names, dates, data classes + public paste/stealer links); otherwise it stays off with setup copy.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
 6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases. **Share** mints a read-only public-OSINT link.
 7. **Crawl** — `https://example.com` (or the Crawl chip / `crawl this host example.com`) walks same-origin pages, then optional pivots.
-8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts and on a first-seen timeline. Configure webhook / SMTP or Resend / Telegram for operator alerts.
+8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts and on a first-seen timeline. Open **Alerts / settings** to see Telegram / Resend / SMTP / webhook status (no secrets) and send a **Test alert**.
 9. **Share** — from Cases, mint a read-only `/share/:token` link (optional expiry). Recipients see dossier + founds + graph without signing in. Revoke anytime.
 10. **Batch** — paste a list of identifiers. Lean scans run one at a time; export the combined queue when it finishes.
-11. **Power** — on ≥~1800 MB RAM, `UMBRA_POWER=1`, or the UI **Power** chip (warns on 1 GB). Allows Full + TLS impersonation. Playwright stays off.
+11. **Power** — on ≥~1800 MB RAM, `UMBRA_POWER=1`, or the UI **Power** chip (confirm-gated on 1 GB). Allows Full + TLS impersonation. Playwright stays off. A banner explains Railway **Settings → Resources** when the cgroup is under 2 GB.
 
 ## Railway (public HTTPS)
 
@@ -86,7 +90,7 @@ Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, l
 
 **1 GB hobby / free plan:** keep Playwright **off**. A full 1000-site handle scan with curl-impersonate used to peak at **~1.34 GB RSS** and freeze the phone UI. Production now defaults to:
 
-- `UMBRA_PROFILE=lean` — ~200 curated + high-signal handle sites, high-signal mail oracles first (quarantined / chronically blocked skipped), crawl cap 25 pages. Toggle **Full** in the UI for the complete map.
+- `UMBRA_PROFILE=lean` — ~250 curated + high-signal handle sites (chronically blocked modules skipped), proven mail oracles only (quarantined / chronically blocked skipped), crawl cap 25 pages. Toggle **Full** in the UI for the complete map.
 - `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=0` on 1 GB (TLS children stay off so the cgroup does not OOM). `UMBRA_BODY_LIMIT=48000`
 - RSS cancel at **450 / 600 MB** (`UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB`)
 - `NODE_OPTIONS=--max-old-space-size=384`, Playwright off
@@ -135,7 +139,7 @@ No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`
 PORT=43180 HOST=0.0.0.0 npm start
 ```
 
-The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process **only for WAF-heavy hosts**. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service. Concurrent curl children are hard-capped (`UMBRA_CURL_MAX`, default 1). Response bodies are streamed and truncated (`UMBRA_BODY_LIMIT`, default 48 KB). Under memory pressure the scan aborts cleanly (`cancelled`) instead of death-spiraling into an OOM restart.
+The production image installs **curl-impersonate** (`curl_chrome146`) and invokes it as a child process **only for WAF-heavy hosts**. That is still a **single long-lived Node process** on `0.0.0.0:$PORT` — not a second sidecar service. Concurrent curl children are hard-capped (`UMBRA_CURL_MAX`, default 1). Response bodies are streamed and truncated (`UMBRA_BODY_LIMIT`, default 48 KB). Under memory pressure the scan aborts cleanly (`cancelled`) with a human message (Railway Settings → Resources) instead of death-spiraling into an OOM restart. The live ledger reconnects if SSE drops; **Cancel** always stops the UI immediately.
 
 ## PWA install (phone)
 
@@ -189,7 +193,7 @@ Local without Docker: TLS impersonation is **partial** until `curl-impersonate` 
 
 ### Mail safety
 
-Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names + dates). Without a key the HIBP oracle is omitted entirely — never a fake miss.
+Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names, dates, data classes). Without a key the HIBP oracle is omitted entirely — never a fake miss. Public paste/stealer pivots (Google paste search, gists, Hudson Rock, IntelX, LeakIX) are links only — no paid scraping.
 
 ### Phone safety
 
@@ -229,15 +233,15 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 - `GET /api/cases/:id` · `DELETE /api/cases/:id` · `GET /api/cases/:id/export?format=json|md|html`
 - `GET /api/cases/compare?a=&b=`
 - `GET /api/watches` · `POST /api/watches` `{ query, mode?, intervalHours? }` · `DELETE /api/watches/:id` · `POST /api/watches/:id/run`
-- `GET /api/alerts` · `POST /api/alerts/:id/read`
+- `GET /api/alerts` · `GET /api/alerts/setup` · `POST /api/alerts/test` · `POST /api/alerts/:id/read`
 - `POST /api/cases/:id/share` `{ expiresInHours? }` · `GET /api/cases/:id/shares` · `GET /api/share/:token` · `GET /api/c/:id?token=` · `POST /api/shares/:token/revoke`
 - `POST /api/batch` `{ text }` lean serial queue · `GET /api/batch/:id` · `POST /api/batch/:id/cancel` · `GET /api/batch/:id/export?format=json|csv|md`
 - `GET /api/schema` registry stats (`oraclesLean`)
-- `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / alert channels / shares / power flags
+- `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / alert setup / shares / power flags + 1 GB banner
 
 ## Tests
 
-Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, SSRF blocks, persistent cases + executive HTML, watch diffs + first-seen timeline, alert channels (webhook / Resend / Telegram), read-only share tokens, batch queue parse/cancel/export, power-mode caps (~1800 MB / UI Power), and bounded crawl harvest/SSRF.
+Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, lean ranking + chronic-block skip, SSRF blocks, persistent cases + executive HTML, watch diffs + first-seen timeline, alert channels (webhook / Resend / Telegram) plus setup/test (no secrets in the payload), read-only share tokens, batch queue parse/cancel/export, power-mode caps (~1800 MB / UI Power / 1 GB banner), user-facing scan errors, and bounded crawl harvest/SSRF.
 
 ## Environment
 
@@ -246,7 +250,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `PORT` / `UMBRA_PORT` | `43180` | Engine bind |
 | `HOST` | `0.0.0.0` | Engine host |
 | `UMBRA_PROXY` | unset (clearnet) | `http://` or `socks5://` proxy |
-| `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger. When unset, HIBP is omitted (not a miss). |
+| `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger (names, dates, data classes). When unset, HIBP is omitted (not a miss). Get a key at haveibeenpwned.com/API/Key — set it in Railway Variables, never in the UI. |
 | `UMBRA_CASES_DIR` | `/data/cases` if `/data` is writable, else unset | JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
 | `UMBRA_WATCHES_DIR` | `<cases>/_watches` or `/data/watches` | Watch + alert JSON. Same volume as cases. |
 | `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts (operator webhook). |
@@ -255,10 +259,10 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `RESEND_API_KEY` or `UMBRA_RESEND_API_KEY` | unset | Resend HTTPS email. Preferred over SMTP when both are set. Needs `UMBRA_ALERT_EMAIL`. |
 | `UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID` | unset | Telegram bot alert (operator chat). No SMS. |
 | `UMBRA_WATCH_MIN_MS` | `3600000` (1h) | Minimum watch interval (tests may lower this). Default interval is 24h. |
-| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first). Does **not** by itself enable TLS on 1 GB. |
+| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 250 curated + high-signal sites (chronic WAF skipped); `full` is the complete clearnet map (fast tier first). Does **not** by itself enable TLS on 1 GB. |
 | `UMBRA_POWER` | unset | `1` enables power: 8 workers, `UMBRA_CURL_MAX` at least 1, 100-page crawl. Also on when cgroup RAM ≥ ~1800 MB or the UI Power chip is used. Playwright stays off. |
 | `UMBRA_CRAWL_PAGES` | `25` lean / `100` power | Max pages for a same-origin crawl. |
-| `UMBRA_LEAN_SITES` | `200` | Cap for lean handle scans |
+| `UMBRA_LEAN_SITES` | `250` | Cap for lean handle scans (50–400) |
 | `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |
 | `UMBRA_TLS` | `auto` | `auto` / `always` / `off` for curl-impersonate. `auto` uses it only on WAF-heavy hosts |
 | `UMBRA_CURL_IMPERSONATE` | auto-detect | Path to `curl_chrome146` (or similar) |

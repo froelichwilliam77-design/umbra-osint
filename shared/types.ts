@@ -151,6 +151,8 @@ export interface HibpDossier {
   skipped?: string;
   breachCount: number;
   breaches: HibpBreach[];
+  /** Public paste / stealer pivot URLs (no paid scraping). */
+  pasteLinks?: { label: string; url: string }[];
 }
 
 export interface SpfRecord {
@@ -490,4 +492,30 @@ export interface AlertChannelsPublic {
   smtp: boolean;
   resend: boolean;
   telegram: boolean;
+}
+
+export interface AlertChannelHint {
+  configured: boolean;
+  vars: string[];
+  missing: string[];
+}
+
+export interface AlertSetupPublic {
+  channels: AlertChannelsPublic;
+  hints: {
+    webhook: AlertChannelHint;
+    telegram: AlertChannelHint;
+    resend: AlertChannelHint;
+    smtp: AlertChannelHint;
+    emailTo: AlertChannelHint;
+  };
+  hibp: { configured: boolean; vars: string[] };
+  note: string;
+}
+
+export interface AlertTestResult {
+  ok: boolean;
+  delivered: AlertChannelDelivery;
+  configured: AlertChannelsPublic;
+  message: string;
 }

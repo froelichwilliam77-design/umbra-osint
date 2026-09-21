@@ -3,7 +3,8 @@
 export const SSE_FLUSH_MS = 150;
 export const LEDGER_ROW_HEIGHT = 64;
 export const LEDGER_OVERSCAN = 16;
-export const LEAN_SITE_CAP = 200;
+/** Lean handle map: curated + high-signal, still small enough for 1 GB. */
+export const LEAN_SITE_CAP = 250;
 export const FAST_TIER_SIZE = 150;
 export const LEAN_CRAWL_PAGES = 25;
 export const POWER_CRAWL_PAGES = 100;

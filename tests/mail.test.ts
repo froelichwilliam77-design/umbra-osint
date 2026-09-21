@@ -63,6 +63,8 @@ describe("mail pivots and hashes", () => {
     const links = mailOpenLinks("press@github.com", "hash");
     expect(links.length).toBeGreaterThan(6);
     expect(links.some((l) => l.label === "Google")).toBe(true);
+    expect(links.some((l) => l.label === "Paste search")).toBe(true);
+    expect(links.some((l) => l.label === "Gists")).toBe(true);
   });
 
   it("hashes Gravatar SHA-256 of the normalized address", () => {

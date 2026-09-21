@@ -1,4 +1,10 @@
-import type { AlertChannelDelivery, AlertChannelsPublic, WatchAlert } from "../shared/types.ts";
+import type {
+  AlertChannelDelivery,
+  AlertChannelsPublic,
+  AlertSetupPublic,
+  AlertTestResult,
+  WatchAlert,
+} from "../shared/types.ts";
 import { alertEmailTo, sendSmtpMail, smtpConfigured, smtpFrom } from "./smtp.ts";
 
 export function alertWebhookUrl(): string | null {
@@ -38,6 +44,92 @@ export function alertChannels(): AlertChannelsPublic {
     smtp: smtpConfigured(),
     resend: resendConfigured(),
     telegram: telegramConfigured(),
+  };
+}
+
+function hint(configured: boolean, vars: string[], missing: string[]): AlertSetupPublic["hints"]["webhook"] {
+  return { configured, vars, missing };
+}
+
+/** Public setup copy — names env vars, never values. */
+export function alertSetup(): AlertSetupPublic {
+  const channels = alertChannels();
+  const telegramVars = ["UMBRA_TELEGRAM_BOT_TOKEN", "UMBRA_TELEGRAM_CHAT_ID"];
+  const telegramMissing = [
+    telegramBotToken() ? null : "UMBRA_TELEGRAM_BOT_TOKEN",
+    telegramChatId() ? null : "UMBRA_TELEGRAM_CHAT_ID",
+  ].filter((v): v is string => Boolean(v));
+  const resendVars = ["RESEND_API_KEY (or UMBRA_RESEND_API_KEY)", "UMBRA_ALERT_EMAIL"];
+  const resendMissing = [
+    resendApiKey() ? null : "RESEND_API_KEY",
+    alertEmailTo() ? null : "UMBRA_ALERT_EMAIL",
+  ].filter((v): v is string => Boolean(v));
+  const smtpVars = ["UMBRA_SMTP_HOST", "UMBRA_SMTP_PORT", "UMBRA_SMTP_USER", "UMBRA_SMTP_PASS", "UMBRA_SMTP_FROM", "UMBRA_ALERT_EMAIL"];
+  const smtpMissing = [
+    smtpHostConfigured() ? null : "UMBRA_SMTP_HOST",
+    alertEmailTo() ? null : "UMBRA_ALERT_EMAIL",
+  ].filter((v): v is string => Boolean(v));
+  return {
+    channels,
+    hints: {
+      webhook: hint(channels.webhook, ["UMBRA_ALERT_WEBHOOK"], channels.webhook ? [] : ["UMBRA_ALERT_WEBHOOK"]),
+      telegram: hint(channels.telegram, telegramVars, telegramMissing),
+      resend: hint(channels.resend, resendVars, resendMissing),
+      smtp: hint(channels.smtp, smtpVars, smtpMissing),
+      emailTo: hint(Boolean(alertEmailTo()), ["UMBRA_ALERT_EMAIL"], alertEmailTo() ? [] : ["UMBRA_ALERT_EMAIL"]),
+    },
+    hibp: { configured: Boolean(process.env.HIBP_API_KEY?.trim()), vars: ["HIBP_API_KEY"] },
+    note: channels.webhook || channels.email || channels.telegram
+      ? "Operator inbox only — Umbra never emails, SMS, or Telegram-messages the investigation subject."
+      : "No outbound channels yet. Set Railway Variables (never paste secrets here): UMBRA_TELEGRAM_BOT_TOKEN + UMBRA_TELEGRAM_CHAT_ID, RESEND_API_KEY + UMBRA_ALERT_EMAIL, UMBRA_SMTP_* + UMBRA_ALERT_EMAIL, and/or UMBRA_ALERT_WEBHOOK.",
+  };
+}
+
+function smtpHostConfigured(): boolean {
+  return Boolean(process.env.UMBRA_SMTP_HOST?.trim());
+}
+
+export async function sendTestAlert(): Promise<AlertTestResult> {
+  const configured = alertChannels();
+  const any = configured.webhook || configured.email || configured.telegram;
+  if (!any) {
+    return {
+      ok: false,
+      delivered: {},
+      configured,
+      message: alertSetup().note,
+    };
+  }
+  const alert: WatchAlert = {
+    id: "test",
+    watchId: "test",
+    query: "(test alert)",
+    mode: "handle",
+    createdAt: new Date().toISOString(),
+    newFounds: [
+      {
+        site: "Umbra",
+        url: "https://github.com/froelichwilliam77-design/umbra-osint",
+        status: "found",
+      },
+    ],
+    goneFounds: [],
+    read: true,
+  };
+  const delivered = await deliverAlert(alert);
+  const ok = Boolean(delivered.webhook || delivered.email || delivered.telegram);
+  const bits = [
+    delivered.webhook ? "webhook" : configured.webhook ? "webhook failed" : null,
+    delivered.email ? "email" : configured.email ? "email failed" : null,
+    delivered.telegram ? "telegram" : configured.telegram ? "telegram failed" : null,
+  ].filter(Boolean);
+  return {
+    ok,
+    delivered,
+    configured,
+    message: ok
+      ? `Test alert sent (${bits.join(", ")}). Check the operator inbox — never the subject.`
+      : `Test alert did not land (${bits.join(", ") || "no delivery"}). Recheck env vars without pasting secrets here.`,
   };
 }
 

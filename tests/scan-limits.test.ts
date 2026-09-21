@@ -121,6 +121,6 @@ describe("scan profile + SSE batching", () => {
     const { fast, rest } = splitFastTier(sites, FAST_TIER_SIZE);
     expect(fast.length).toBe(FAST_TIER_SIZE);
     expect(rest.length).toBe(400 - FAST_TIER_SIZE);
-    expect(LEAN_SITE_CAP).toBe(200);
+    expect(LEAN_SITE_CAP).toBe(250);
   });
 });

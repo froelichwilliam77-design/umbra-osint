@@ -58,10 +58,10 @@ export function BatchPanel({
   const total = queue?.jobs.length ?? 0;
 
   return (
-    <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+    <section className="mt-4 scroll-mt-28 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <button
         type="button"
-        className="flex w-full items-center justify-between text-left text-xs uppercase tracking-wide text-fog-300"
+        className="tap-lg flex w-full items-center justify-between text-left text-xs uppercase tracking-wide text-fog-300"
         onClick={() => setOpen((v) => !v)}
       >
         <span className="flex items-center gap-2">
@@ -81,7 +81,7 @@ export function BatchPanel({
             onChange={(e) => setText(e.target.value)}
             rows={5}
             placeholder={`octocat\npress@github.com\ngithub.com\n+14155552671\n# comments and blanks are skipped (max ${BATCH_MAX_LINES})`}
-            className="mt-3 w-full rounded-md border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-xs text-fog-100"
+            className="mt-3 min-h-32 w-full rounded-md border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-xs text-fog-100"
           />
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" className="tap-lg" onClick={() => void start()} disabled={!text.trim()}>

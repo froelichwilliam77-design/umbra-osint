@@ -33,6 +33,7 @@ import { clampPerHost, clampWorkers, maxConcurrentScans, resolveScanProfile, sca
 import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
 import { beginScanPower, endScanPower, powerActive } from "./power.ts";
+import { MEMORY_BUSY_MESSAGE, explainScanAbort } from "../shared/scan-messages.ts";
 
 interface StoredScan {
   summary: ScanSummary;
@@ -98,14 +99,14 @@ export function canStartScan(opts?: {
   replace?: boolean;
 }): { ok: true } | { ok: false; status: number; error: string } {
   if (isHardMemoryPressure()) {
-    return { ok: false, status: 503, error: "memory pressure — retry shortly" };
+    return { ok: false, status: 503, error: MEMORY_BUSY_MESSAGE };
   }
   const replace = opts?.replace !== false; // default true for interactive UI
   if (!replace && runningScanCount() >= maxConcurrentScans()) {
     return {
       ok: false,
       status: 409,
-      error: "A scan is already running. 1 GB hosts keep one scan in flight.",
+      error: "A scan is already running. 1 GB hosts keep one scan in flight — tap Cancel, then Recon.",
     };
   }
   return { ok: true };
@@ -207,11 +208,11 @@ export async function startScan(input: {
   const profileNote =
     kind === "handle"
       ? profile === "lean"
-        ? `Lean profile: ${siteCount} curated + high-signal sites (not the full ${fullHandle}-site map). Choose Full for the complete scan.`
+        ? `Lean profile: ${siteCount} high-signal sites (skipped chronically blocked modules; not the full ${fullHandle}-site map). Choose Full for the complete scan.`
         : `Full profile: ${siteCount} sites. Fast tier runs first, then the rest.`
       : kind === "mail"
         ? profile === "lean"
-          ? `Lean mail: high-signal oracles first; quarantined and chronically blocked oracles skipped (${siteCount} checks).`
+          ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped (${siteCount} checks).`
           : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe).`
         : kind === "crawl"
           ? `Bounded same-origin crawl (max pages from ${profile} / power). Private and loopback hosts are blocked.`
@@ -426,6 +427,7 @@ async function execute(
       });
       if (dossier.hibp?.enabled) {
         const names = dossier.hibp.breaches.slice(0, 8).map((b) => b.title || b.name);
+        const classes = [...new Set(dossier.hibp.breaches.flatMap((b) => b.dataClasses ?? []))].slice(0, 8);
         onRow({
           id: `${stored.summary.id}:hibp`,
           scanId: stored.summary.id,
@@ -437,12 +439,12 @@ async function execute(
           reason: dossier.hibp.skipped
             ? dossier.hibp.skipped
             : dossier.hibp.breachCount
-              ? `${dossier.hibp.breachCount} breach record(s)${names.length ? `: ${names.join(", ")}` : ""}`
+              ? `${dossier.hibp.breachCount} breach record(s)${names.length ? `: ${names.join(", ")}` : ""}${classes.length ? ` · ${classes.join(", ")}` : ""}`
               : "HIBP reports no breaches for this address.",
           url: `https://haveibeenpwned.com/account/${encodeURIComponent(stored.summary.query)}`,
           method: "GET",
           metadata: {
-            extra: { breaches: dossier.hibp.breachCount },
+            extra: { breaches: dossier.hibp.breachCount, classes: classes.join(", ") },
           },
         });
       }
@@ -504,8 +506,10 @@ async function execute(
     if (err instanceof ScanAbortError) {
       stored.summary.status = "cancelled";
       stored.summary.abortReason = err.message;
+      emit(stored, { type: "notice", message: explainScanAbort(err.message) });
+    } else {
+      emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
     }
-    emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
     try {
       flushProgress();

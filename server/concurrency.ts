@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import { MEMORY_ABORT_MESSAGE } from "../shared/scan-messages.ts";
 import { killImpersonateChildren } from "./curl-impersonate.ts";
 import { ScanAbortError, isHardMemoryPressure, isSoftMemoryPressure } from "./memory.ts";
 
@@ -58,7 +59,7 @@ export class HostPool {
           killImpersonateChildren();
         }
         if (isHardMemoryPressure()) {
-          this.abort("memory pressure");
+          this.abort(MEMORY_ABORT_MESSAGE);
           return undefined;
         }
         return fn();

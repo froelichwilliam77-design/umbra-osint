@@ -249,6 +249,8 @@ describe("mail open-in pivots", () => {
     const links = mailOpenLinks("press@github.com", "abc", "def");
     expect(links.some((l) => l.label === "HIBP")).toBe(true);
     expect(links.some((l) => l.label === "Hudson Rock")).toBe(true);
+    expect(links.some((l) => l.label === "Paste search")).toBe(true);
+    expect(links.some((l) => l.label === "Gists")).toBe(true);
     expect(links.some((l) => l.label === "Epieos")).toBe(true);
     expect(links.find((l) => l.label === "Gravatar")?.url).toContain("abc");
   });

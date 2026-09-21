@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
+import { MEMORY_ABORT_MESSAGE } from "../shared/scan-messages.ts";
 import { memoryHardMb, memorySoftMb } from "./limits.ts";
 
 export type MemoryPressure = "ok" | "soft" | "hard";
 
 export class ScanAbortError extends Error {
-  constructor(message = "Scan aborted: memory pressure") {
+  constructor(message = MEMORY_ABORT_MESSAGE) {
     super(message);
     this.name = "ScanAbortError";
   }

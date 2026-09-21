@@ -1,7 +1,7 @@
 import type { LedgerRow } from "../shared/types.ts";
 import { excerpt } from "./classify.ts";
 import { fetchImpersonate, impersonateAvailable, isWafHeavy, tlsMode } from "./curl-impersonate.ts";
-import { fetchPublic, type HttpRequest, type HttpResponse } from "./http.ts";
+import { fetchPublicRetry, type HttpRequest, type HttpResponse } from "./http.ts";
 import { finalizeOracleVerdict, parseMaybeJson } from "./mail-oracle-recover.ts";
 import { classifyOracleBody, type OracleVerdict } from "./oracles.ts";
 import {
@@ -75,7 +75,7 @@ export async function fetchOracle(req: HttpRequest): Promise<HttpResponse> {
     if (impersonated.status > 0 && !stillChallenged(impersonated)) return impersonated;
   }
 
-  let res = await fetchPublic(withHeaders);
+  let res = await fetchPublicRetry(withHeaders, 2);
   if (
     impersonateAvailable() &&
     tlsMode() !== "off" &&
