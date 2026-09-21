@@ -127,4 +127,18 @@ describe("alert channels", () => {
     expect(result.delivered.webhook).toBe(true);
     expect(result.message).toMatch(/Test alert sent/);
   });
+
+  it("explains a dry Test alert when no channels are configured", async () => {
+    delete process.env.UMBRA_ALERT_WEBHOOK;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.UMBRA_RESEND_API_KEY;
+    delete process.env.UMBRA_SMTP_HOST;
+    delete process.env.UMBRA_TELEGRAM_BOT_TOKEN;
+    delete process.env.UMBRA_TELEGRAM_CHAT_ID;
+    const result = await sendTestAlert();
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Nothing to send/);
+    expect(result.message).toMatch(/Railway Variables/);
+    expect(JSON.stringify(result)).not.toMatch(/secret-token-value|hibp-secret|re_live|bot[0-9]/i);
+  });
 });
