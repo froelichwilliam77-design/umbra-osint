@@ -106,7 +106,7 @@ export interface AvatarHit {
 export function clusterPhashes(
   hits: (AvatarHit & { phash: string })[],
   maxDistance = 10,
-): { phash: string; sites: string[]; avatarUrls: string[]; distanceMax: number }[] {
+): { phash: string; sites: string[]; avatarUrls: string[]; distanceMax: number; members: AvatarHit[] }[] {
   const clusters: { members: (AvatarHit & { phash: string })[]; distanceMax: number }[] = [];
   for (const hit of hits) {
     let placed = false;
@@ -128,6 +128,7 @@ export function clusterPhashes(
       sites: [...new Set(c.members.map((m) => m.site))],
       avatarUrls: [...new Set(c.members.map((m) => m.avatarUrl))],
       distanceMax: c.distanceMax,
+      members: c.members.map((m) => ({ site: m.site, url: m.url, avatarUrl: m.avatarUrl })),
     }));
 }
 

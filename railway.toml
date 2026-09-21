@@ -12,5 +12,5 @@ restartPolicyType = "ON_FAILURE"
 # UMBRA_PLAYWRIGHT=0.
 # Attach a Railway volume at /data so cases + watches survive restarts (UMBRA_CASES_DIR=/data/cases).
 # Never put VOLUME in the Dockerfile — Metal builder fails immediately ("VOLUME is not supported").
-# Power (≥2 GB): UMBRA_POWER=1 UMBRA_PROFILE=full UMBRA_CURL_MAX=1 UMBRA_WORKERS=8
+# Power (≥~1800 MB cgroup or UMBRA_POWER=1): UMBRA_CURL_MAX=1 and raise UMBRA_WORKERS.
 # Do not set UMBRA_PLAYWRIGHT=1 unless you install Chromium on a larger instance.

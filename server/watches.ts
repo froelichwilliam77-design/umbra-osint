@@ -5,10 +5,11 @@ import {
   WATCH_DEFAULT_INTERVAL_MS,
   WATCH_MIN_INTERVAL_MS,
 } from "../shared/scan-limits.ts";
-import type { DetectedKind, FoundSnapshot, LedgerRow, WatchAlert, WatchRecord } from "../shared/types.ts";
+import type { DetectedKind, FoundSnapshot, LedgerRow, WatchAlert, WatchFindEvent, WatchRecord } from "../shared/types.ts";
 import { casesDir } from "./cases.ts";
 import { canStartScan, startScan, waitForScan } from "./scans.ts";
 import { resolveMode } from "./detect.ts";
+import { deliverAlert } from "./alerts.ts";
 
 const MAX_WATCHES = 32;
 const MAX_ALERTS = 80;
@@ -186,6 +187,7 @@ export function createWatch(input: {
     updatedAt: now,
     nextRunAt: now,
     lastFound: [],
+    timeline: [],
     enabled: true,
   };
   return persistWatch(rec);
@@ -218,6 +220,7 @@ export function ingestWatchScan(rec: WatchRecord, rows: LedgerRow[]): { rec: Wat
   const baseline = rec.lastFound.length === 0;
   const next = foundSnapshot(rows);
   const diff = diffFounds(rec.lastFound, next);
+  rec.timeline = mergeTimeline(rec.timeline, next, new Date().toISOString());
   rec.lastFound = next;
   rec.lastError = undefined;
   if (baseline || !diff.newFounds.length) {
@@ -234,6 +237,27 @@ export function ingestWatchScan(rec: WatchRecord, rows: LedgerRow[]): { rec: Wat
     read: false,
   };
   return { rec, alert };
+}
+
+export function mergeTimeline(
+  prev: WatchFindEvent[] | undefined,
+  next: FoundSnapshot[],
+  now: string,
+): WatchFindEvent[] {
+  const map = new Map<string, WatchFindEvent>();
+  for (const ev of prev ?? []) {
+    map.set(`${ev.site.toLowerCase()}|${ev.url.toLowerCase()}`, { ...ev });
+  }
+  for (const f of next) {
+    const k = `${f.site.toLowerCase()}|${f.url.toLowerCase()}`;
+    const existing = map.get(k);
+    if (existing) {
+      existing.lastSeenAt = now;
+    } else {
+      map.set(k, { site: f.site, url: f.url, firstSeenAt: now, lastSeenAt: now });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.firstSeenAt.localeCompare(b.firstSeenAt) || a.site.localeCompare(b.site));
 }
 
 export function foundSnapshot(rows: LedgerRow[]): FoundSnapshot[] {
@@ -255,34 +279,7 @@ export function diffFounds(prev: FoundSnapshot[], next: FoundSnapshot[]): {
   };
 }
 
-export function alertWebhookUrl(): string | null {
-  const u = process.env.UMBRA_ALERT_WEBHOOK?.trim();
-  return u || null;
-}
-
-async function postWebhook(alert: WatchAlert): Promise<boolean> {
-  const url = alertWebhookUrl();
-  if (!url) return false;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "user-agent": "umbra-watch/1.7" },
-      body: JSON.stringify({
-        type: "umbra.alert",
-        watchId: alert.watchId,
-        query: alert.query,
-        mode: alert.mode,
-        createdAt: alert.createdAt,
-        newFounds: alert.newFounds,
-        goneFounds: alert.goneFounds,
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
+export { alertWebhookUrl } from "./alerts.ts";
 
 let runningWatch = false;
 
@@ -314,7 +311,9 @@ export async function runWatch(id: string): Promise<WatchRecord | null> {
     const ingested = ingestWatchScan(rec, stored.rows);
     persistWatch(ingested.rec);
     if (ingested.alert) {
-      ingested.alert.webhookDelivered = await postWebhook(ingested.alert);
+      const delivered = await deliverAlert(ingested.alert);
+      ingested.alert.channelsDelivered = delivered;
+      ingested.alert.webhookDelivered = delivered.webhook;
       persistAlert(ingested.alert);
     }
     return ingested.rec;

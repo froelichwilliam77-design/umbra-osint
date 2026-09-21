@@ -291,11 +291,18 @@ export interface IdentityGraph {
   edges: GraphEdge[];
 }
 
+export interface AvatarClusterMember {
+  site: string;
+  url: string;
+  avatarUrl: string;
+}
+
 export interface AvatarCluster {
   phash: string;
   sites: string[];
   avatarUrls: string[];
   distanceMax: number;
+  members?: AvatarClusterMember[];
 }
 
 export interface ScanCompare {
@@ -335,7 +342,8 @@ export interface ScanSummary {
   siteCount: number;
   profile?: "lean" | "full";
   profileNote?: string;
-  source?: "user" | "watch";
+  source?: "user" | "watch" | "batch";
+  power?: boolean;
 }
 
 export type ScanEvent =
@@ -382,6 +390,13 @@ export interface FoundSnapshot {
   status: LedgerStatus;
 }
 
+export interface WatchFindEvent {
+  site: string;
+  url: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
 export interface WatchRecord {
   id: string;
   query: string;
@@ -393,8 +408,16 @@ export interface WatchRecord {
   nextRunAt: string;
   lastScanId?: string;
   lastFound: FoundSnapshot[];
+  /** First time each found URL appeared across watch runs. */
+  timeline?: WatchFindEvent[];
   enabled: boolean;
   lastError?: string;
+}
+
+export interface AlertChannelDelivery {
+  webhook?: boolean;
+  email?: boolean;
+  telegram?: boolean;
 }
 
 export interface WatchAlert {
@@ -407,4 +430,64 @@ export interface WatchAlert {
   goneFounds: FoundSnapshot[];
   read: boolean;
   webhookDelivered?: boolean;
+  channelsDelivered?: AlertChannelDelivery;
+}
+
+export interface CaseShare {
+  token: string;
+  caseId: string;
+  createdAt: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  label?: string;
+}
+
+export interface SharedCaseView {
+  readOnly: true;
+  token: string;
+  createdAt: string;
+  expiresAt?: string;
+  query: string;
+  mode: DetectedKind;
+  savedAt: string;
+  found: number;
+  dossier?: ScanSummary["dossier"];
+  foundRows: LedgerRow[];
+  graph?: IdentityGraph;
+  avatarClusters?: AvatarCluster[];
+  progress: ScanProgress;
+  profile?: "lean" | "full";
+}
+
+export type BatchJobStatus = "queued" | "running" | "done" | "cancelled" | "skipped" | "error";
+
+export interface BatchJob {
+  id: string;
+  query: string;
+  raw: string;
+  mode?: DetectedKind;
+  status: BatchJobStatus;
+  reason?: string;
+  scanId?: string;
+  found?: number;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface BatchQueue {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  status: "queued" | "running" | "done" | "cancelled";
+  profile: "lean" | "full";
+  jobs: BatchJob[];
+  currentIndex: number;
+}
+
+export interface AlertChannelsPublic {
+  webhook: boolean;
+  email: boolean;
+  smtp: boolean;
+  resend: boolean;
+  telegram: boolean;
 }

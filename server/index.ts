@@ -31,6 +31,24 @@ import {
   startWatchScheduler,
   watchesPersistMode,
 } from "./watches.ts";
+import { alertChannels } from "./alerts.ts";
+import {
+  cancelBatch,
+  createBatch,
+  exportBatch,
+  getBatch,
+  listBatches,
+  runBatch,
+} from "./batch.ts";
+import {
+  createShare,
+  listShares,
+  publicShareView,
+  revokeShare,
+  sharePath,
+  shareQueryPath,
+  sharesPersistMode,
+} from "./shares.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || process.env.UMBRA_PORT || 43180);
@@ -77,6 +95,7 @@ app.post("/api/scans", async (req, reply) => {
     perHost?: number;
     replace?: boolean;
     profile?: "lean" | "full";
+    power?: boolean;
   };
   const replace = body.replace !== false; // default true — interactive UI replaces wedged scans
   const gate = canStartScan({ replace });
@@ -92,6 +111,7 @@ app.post("/api/scans", async (req, reply) => {
     perHost: body.perHost,
     replace,
     profile: body.profile,
+    power: body.power,
   });
   return scan;
 });
@@ -210,7 +230,109 @@ app.get("/api/cases/:id/export", async (req, reply) => {
   return reply.send(file.body);
 });
 
-app.get("/api/watches", async () => ({ persist: watchesPersistMode(), watches: listWatches(), alerts: listAlerts() }));
+app.get("/api/cases/:id/shares", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!getCase(id)) return reply.code(404).send({ error: "case not found" });
+  return { persist: sharesPersistMode(), shares: listShares(id) };
+});
+
+app.post("/api/cases/:id/share", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const body = (req.body ?? {}) as { expiresInHours?: number | null; label?: string };
+  try {
+    const rec = createShare({
+      caseId: id,
+      expiresInHours: body.expiresInHours,
+      label: body.label,
+    });
+    return {
+      ...rec,
+      path: sharePath(rec.token),
+      altPath: shareQueryPath(rec.caseId, rec.token),
+      readOnly: true,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return reply.code(msg === "case not found" ? 404 : 400).send({ error: msg });
+  }
+});
+
+app.get("/api/shares", async () => ({ persist: sharesPersistMode(), shares: listShares() }));
+
+app.post("/api/shares/:token/revoke", async (req, reply) => {
+  const { token } = req.params as { token: string };
+  const rec = revokeShare(token);
+  if (!rec) return reply.code(404).send({ error: "share not found" });
+  return rec;
+});
+
+app.delete("/api/shares/:token", async (req, reply) => {
+  const { token } = req.params as { token: string };
+  const rec = revokeShare(token);
+  if (!rec) return reply.code(404).send({ error: "share not found" });
+  return rec;
+});
+
+app.get("/api/share/:token", async (req, reply) => {
+  const { token } = req.params as { token: string };
+  const view = publicShareView(token);
+  if (!view) return reply.code(404).send({ error: "share not found, expired, or revoked" });
+  return view;
+});
+
+app.get("/api/c/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const token = String((req.query as { token?: string }).token ?? "");
+  if (!token) return reply.code(400).send({ error: "token is required" });
+  const view = publicShareView(token, id);
+  if (!view) return reply.code(404).send({ error: "share not found, expired, or revoked" });
+  return view;
+});
+
+app.get("/api/batch", async () => ({ batches: listBatches() }));
+
+app.post("/api/batch", async (req, reply) => {
+  const body = (req.body ?? {}) as { text?: string; lines?: string; profile?: "lean" | "full" };
+  const text = body.text ?? body.lines ?? "";
+  try {
+    const queue = createBatch(text, body.profile === "full" ? "full" : "lean");
+    if (queue.status === "queued") void runBatch(queue.id);
+    return queue;
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/batch/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = getBatch(id);
+  if (!rec) return reply.code(404).send({ error: "batch not found" });
+  return rec;
+});
+
+app.post("/api/batch/:id/cancel", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const rec = cancelBatch(id);
+  if (!rec) return reply.code(404).send({ error: "batch not found" });
+  return rec;
+});
+
+app.get("/api/batch/:id/export", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const format = String((req.query as { format?: string }).format ?? "json");
+  const file = exportBatch(id, format);
+  if (!file) return reply.code(404).send({ error: "batch not found" });
+  reply.header("Content-Type", file.contentType);
+  reply.header("Content-Disposition", `attachment; filename="${file.filename}"`);
+  return reply.send(file.body);
+});
+
+app.get("/api/watches", async () => ({
+  persist: watchesPersistMode(),
+  watches: listWatches(),
+  alerts: listAlerts(),
+  channels: alertChannels(),
+}));
 
 app.post("/api/watches", async (req, reply) => {
   const body = (req.body ?? {}) as {

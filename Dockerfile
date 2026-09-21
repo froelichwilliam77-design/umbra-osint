@@ -55,5 +55,5 @@ RUN mkdir -p /data
 
 # Railway injects $PORT. Single Node process binds 0.0.0.0 and serves the Vite build + /api.
 # curl-impersonate (Chrome TLS) and Playwright Chromium are child processes — not extra services.
-# Power mode (UMBRA_POWER=1, ≥2 GB RAM): set UMBRA_CURL_MAX=1 and raise UMBRA_WORKERS. Playwright stays off.
+# Power mode (UMBRA_POWER=1, ≥~1800 MB RAM, or UI Power): set UMBRA_CURL_MAX=1 and raise UMBRA_WORKERS. Playwright stays off.
 CMD ["npm", "start"]

@@ -9,8 +9,12 @@ export const LEAN_CRAWL_PAGES = 25;
 export const POWER_CRAWL_PAGES = 100;
 export const WATCH_MIN_INTERVAL_MS = 60 * 60 * 1000;
 export const WATCH_DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const POWER_RAM_MB = 2048;
+/** Cgroup/host RAM at or above this engages Power (TLS children + 8 workers). ~1.8 GB so a 2 GB plan qualifies. */
+export const POWER_RAM_MB = 1800;
 export const POWER_WORKERS = 8;
+export const BATCH_MAX_LINES = 40;
+export const SHARE_MAX_PER_CASE = 8;
+export const SHARE_MAX_TOTAL = 64;
 
 export type ScanProfile = "lean" | "full";
 

@@ -10,7 +10,7 @@ import {
   parseScanProfile,
   type ScanProfile,
 } from "../shared/scan-limits.ts";
-import { powerActive, powerEnvEnabled } from "./power.ts";
+import { powerActive, powerEnvEnabled, ramAllowsPower, scanPowerActive } from "./power.ts";
 
 export type { ScanProfile };
 
@@ -84,13 +84,13 @@ export function clampPerHost(n?: number): number {
 }
 
 export function impersonateMax(): number {
-  if (envFlag("UMBRA_POWER")) {
-    const raw = process.env.UMBRA_CURL_MAX;
+  const powered = powerEnvEnabled() || scanPowerActive() || ramAllowsPower();
+  const raw = process.env.UMBRA_CURL_MAX;
+  if (powered) {
     if (raw == null || raw.trim() === "" || raw.trim() === "0") return 1;
     return envInt("UMBRA_CURL_MAX", 1, 1, MAX_CURL_CAP);
   }
-  const fallback = powerActive() ? 1 : DEFAULT_CURL_MAX;
-  return envInt("UMBRA_CURL_MAX", fallback, 0, MAX_CURL_CAP);
+  return envInt("UMBRA_CURL_MAX", DEFAULT_CURL_MAX, 0, MAX_CURL_CAP);
 }
 
 export function bodyLimit(): number {

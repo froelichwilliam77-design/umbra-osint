@@ -42,5 +42,7 @@ describe("avatar pHash", () => {
     );
     expect(clusters).toHaveLength(1);
     expect(clusters[0].sites).toEqual(expect.arrayContaining(["GitHub", "GitLab"]));
+    expect(clusters[0].members?.map((m) => m.site)).toEqual(expect.arrayContaining(["GitHub", "GitLab"]));
+    expect(clusters[0].avatarUrls.length).toBeGreaterThanOrEqual(1);
   });
 });
