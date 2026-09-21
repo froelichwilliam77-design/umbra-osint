@@ -634,7 +634,7 @@ export default function App() {
               <h1 className="text-lg font-medium tracking-wide">Umbra</h1>
               <Badge tone="muted">public OSINT</Badge>
             </div>
-            <p className="mt-1 max-w-2xl text-xs text-fog-300">
+            <p className="mt-1 hidden max-w-2xl text-xs text-fog-300 sm:block">
               {schema
                 ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles${schema.oraclesLean ? ` · lean ${schema.oraclesLean}` : ""} · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
                 : "Loading schema…"}

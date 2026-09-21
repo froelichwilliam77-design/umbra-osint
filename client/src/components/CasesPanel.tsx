@@ -77,7 +77,7 @@ export function CasesPanel({
   };
 
   return (
-    <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+    <section className="mt-4 scroll-mt-28 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       {shareUrl && <CopyDialog title="Read-only share URL" value={shareUrl} onClose={() => setShareUrl(null)} />}
       <button
         type="button"

@@ -130,7 +130,7 @@ export function AlertsPanel({
   const hints = setup?.hints;
 
   return (
-    <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+    <section className="mt-4 scroll-mt-28 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <button
         type="button"
         className="tap-lg flex w-full items-center justify-between gap-2 text-left"

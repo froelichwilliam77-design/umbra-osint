@@ -58,7 +58,7 @@ export function BatchPanel({
   const total = queue?.jobs.length ?? 0;
 
   return (
-    <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+    <section className="mt-4 scroll-mt-28 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <button
         type="button"
         className="tap-lg flex w-full items-center justify-between text-left text-xs uppercase tracking-wide text-fog-300"
