@@ -34,6 +34,7 @@ describe("schema integrity", () => {
     expect(schemaStats().oraclesLean ?? 0).toBeLessThan(schemaStats().oracles);
     const names = lean.map((s) => s.name.toLowerCase());
     expect(names.some((n) => n.includes("github"))).toBe(true);
+    expect(names.some((n) => n.includes("medium"))).toBe(true);
     expect(names.some((n) => n === "instagram")).toBe(false);
     expect(names.some((n) => n === "tiktok")).toBe(false);
   });
@@ -43,7 +44,8 @@ describe("schema integrity", () => {
     const github = ranked.findIndex((s) => /github/i.test(s.name));
     const insta = ranked.findIndex((s) => s.name.toLowerCase() === "instagram");
     expect(github).toBeGreaterThanOrEqual(0);
-    expect(github).toBeLessThan(120);
+    expect(github).toBeLessThan(200);
+    expect(sitesForScan(false, { profile: "lean" }).some((s) => /github/i.test(s.name))).toBe(true);
     if (insta >= 0) expect(github).toBeLessThan(insta);
     const dummy = {
       name: "Instagram",

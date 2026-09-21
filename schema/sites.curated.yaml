@@ -110,7 +110,8 @@ sites:
     e_string: "\"username\""
     m_code: 404
     m_string: "not found"
-    cat: coding
+    cat: blog
+    known: ["ben"]
   - name: Kaggle
     uri_check: https://www.kaggle.com/{account}
     uri_pretty: https://www.kaggle.com/{account}
@@ -228,13 +229,17 @@ sites:
     m_string: "page not found"
     cat: coding
   - name: Hashnode
-    uri_check: https://hashnode.com/@{account}
+    uri_check: https://gql.hashnode.com/
     uri_pretty: https://hashnode.com/@{account}
+    post_body: '{"operationName":"UserBadge","query":"query UserBadge($username:String!){user(username:$username){id}}","variables":{"username":"{account}"}}'
+    headers:
+      Content-Type: application/json
     e_code: 200
-    e_string: "og:title"
-    m_code: 404
-    m_string: "not found"
+    e_string: '"id":'
+    m_code: 200
+    m_string: '"user":null'
     cat: blog
+    known: ["catalinmiron"]
   - name: Osu!
     uri_check: https://osu.ppy.sh/users/{account}
     uri_pretty: https://osu.ppy.sh/users/{account}
@@ -319,13 +324,14 @@ sites:
     cat: video
     username_regex: "^[A-Za-z0-9_]{4,25}$"
   - name: Substack
-    uri_check: https://substack.com/@{account}
+    uri_check: https://substack.com/api/v1/user/{account}/public_profile
     uri_pretty: https://substack.com/@{account}
     e_code: 200
-    e_string: "og:title"
+    e_string: '"id":'
     m_code: 404
-    m_string: "not found"
+    m_string: "profile not found"
     cat: blog
+    known: ["lexfridman"]
   - name: Product Hunt
     uri_check: https://www.producthunt.com/@{account}
     uri_pretty: https://www.producthunt.com/@{account}
@@ -342,6 +348,247 @@ sites:
     m_code: 404
     m_string: "404"
     cat: coding
+  - name: Medium
+    uri_check: https://medium.com/@{account}/about
+    uri_pretty: https://medium.com/@{account}
+    e_code: 200
+    e_string: "Medium member since"
+    m_code: 404
+    m_string: "Out of nothing, something"
+    cat: blog
+    known: ["ev"]
+    username_regex: "^[A-Za-z0-9._-]{1,30}$"
+  - name: tumblr
+    uri_check: https://www.tumblr.com/{account}
+    uri_pretty: https://www.tumblr.com/{account}
+    e_code: 200
+    e_string: '"queryKey":["user-info'
+    m_code: 404
+    m_string: '"status":404'
+    cat: blog
+    known: ["staff"]
+    strip_bad_char: "."
+  - name: Tumblr blog
+    uri_check: https://{account}.tumblr.com/
+    uri_pretty: https://{account}.tumblr.com/
+    e_code: 200
+    e_string: "tumblr.com"
+    m_code: 404
+    m_string: "There's nothing here."
+    cat: blog
+    strip_bad_char: "."
+    username_regex: "^[A-Za-z0-9-]{1,32}$"
+  - name: Blogspot
+    uri_check: https://{account}.blogspot.com/?hl=en-US
+    uri_pretty: https://{account}.blogspot.com
+    e_code: 200
+    e_string: "_WidgetManager._Init"
+    m_code: 404
+    m_string: ">Blog not found<"
+    cat: blog
+    strip_bad_char: "."
+    known: ["kaikore"]
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: WordPress.com (Public)
+    uri_check: https://public-api.wordpress.com/rest/v1.1/sites/{account}.wordpress.com
+    uri_pretty: https://{account}.wordpress.com
+    e_code: 200
+    e_string: '"ID":'
+    m_code: 404
+    m_string: '"error":"unknown_blog"'
+    cat: blog
+    known: ["wordpress"]
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: WordPress.org (Profiles)
+    uri_check: https://login.wordpress.org/wp-json/wporg/v1/username-available/{account}
+    uri_pretty: https://profiles.wordpress.org/{account}/
+    e_code: 200
+    e_string: "That username is already in use"
+    m_code: 200
+    m_string: '"available":true'
+    cat: blog
+    known: ["matt"]
+  - name: Wattpad
+    uri_check: https://www.wattpad.com/api/v3/users/{account}
+    uri_pretty: https://www.wattpad.com/user/{account}
+    e_code: 200
+    e_string: '"username":'
+    m_code: 400
+    m_string: '"error_code":'
+    cat: blog
+    known: ["Wattpad"]
+  - name: Archive of Our Own
+    uri_check: https://archiveofourown.org/users/{account}
+    uri_pretty: https://archiveofourown.org/users/{account}
+    e_code: 200
+    e_string: "Archive of Our Own"
+    m_code: 404
+    m_string: "Sorry, we couldn't find"
+    cat: blog
+    known: ["test"]
+    username_regex: "^[A-Za-z0-9._-]{1,40}$"
+  - name: FanFiction.net
+    uri_check: https://www.fanfiction.net/~{account}
+    uri_pretty: https://www.fanfiction.net/~{account}
+    e_code: 200
+    e_string: "FanFiction"
+    m_code: 404
+    m_string: "Page Not Found"
+    cat: blog
+    username_regex: "^[A-Za-z0-9._-]{3,20}$"
+  - name: FictionPress
+    uri_check: https://www.fictionpress.com/~{account}
+    uri_pretty: https://www.fictionpress.com/~{account}
+    e_code: 200
+    e_string: "FictionPress"
+    m_code: 404
+    m_string: "Page Not Found"
+    cat: blog
+    username_regex: "^[A-Za-z0-9._-]{3,20}$"
+  - name: write.as
+    uri_check: https://write.as/{account}
+    uri_pretty: https://write.as/{account}
+    e_code: 200
+    e_string: "write.as"
+    m_code: 404
+    m_string: "Page not found"
+    cat: blog
+    known: ["pylapp"]
+  - name: Ghost
+    uri_check: https://{account}.ghost.io/
+    uri_pretty: https://{account}.ghost.io/
+    e_code: 200
+    e_string: 'content="Ghost'
+    m_code: 404
+    m_string: "not found"
+    cat: blog
+    strip_bad_char: "."
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: GitBook
+    uri_check: https://{account}.gitbook.io/
+    uri_pretty: https://{account}.gitbook.io/
+    e_code: 200
+    e_string: "GitBook"
+    m_code: 404
+    m_string: "not found"
+    cat: blog
+    strip_bad_char: "."
+    known: ["gitbook"]
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: Notion site
+    uri_check: https://{account}.notion.site
+    uri_pretty: https://{account}.notion.site
+    e_code: 200
+    e_string: "notion"
+    m_code: 404
+    m_string: "Couldn't find that page"
+    cat: blog
+    strip_bad_char: "."
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: Livejournal
+    uri_check: https://{account}.livejournal.com
+    uri_pretty: https://{account}.livejournal.com
+    e_code: 200
+    e_string: '<link rel="canonical" href="'
+    m_code: 404
+    m_string: "<title>Unknown Journal"
+    cat: blog
+    strip_bad_char: "."
+    known: ["john"]
+    username_regex: "^[A-Za-z0-9_-]{3,16}$"
+  - name: Dreamwidth
+    uri_check: https://{account}.dreamwidth.org
+    uri_pretty: https://{account}.dreamwidth.org
+    e_code: 200
+    e_string: "dreamwidth.org"
+    m_code: 404
+    m_string: "Unknown Journal"
+    cat: blog
+    strip_bad_char: "."
+    username_regex: "^[A-Za-z0-9_-]{3,20}$"
+  - name: InsaneJournal
+    uri_check: https://{account}.insanejournal.com/profile
+    uri_pretty: https://{account}.insanejournal.com
+    e_code: 200
+    e_string: "User:"
+    m_code: 200
+    m_string: "The requested URL /profile was not found on this server"
+    cat: blog
+    strip_bad_char: "."
+  - name: HubPages
+    uri_check: https://hubpages.com/@{account}
+    uri_pretty: https://hubpages.com/@{account}
+    e_code: 200
+    e_string: "Followers"
+    m_code: 404
+    m_string: "Sorry, that user does not exist"
+    cat: blog
+    known: ["lmmartin"]
+  - name: carrd.co
+    uri_check: https://{account}.carrd.co
+    uri_pretty: https://{account}.carrd.co
+    e_code: 200
+    e_string: "( Made with Carrd )"
+    m_code: 404
+    m_string: "Sorry, the requested page could not be found."
+    cat: blog
+    strip_bad_char: "."
+    known: ["liam"]
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: Issuu
+    uri_check: https://issuu.com/call/signup/v2/check-username/{account}
+    uri_pretty: https://issuu.com/{account}
+    e_code: 200
+    e_string: '"status":"unavailable"'
+    m_code: 200
+    m_string: '"status":"available"'
+    cat: blog
+    known: ["the_anchor"]
+  - name: Scribd
+    uri_check: https://www.scribd.com/{account}
+    uri_pretty: https://www.scribd.com/{account}
+    e_code: 200
+    e_string: "Scribd"
+    m_code: 200
+    m_string: "Page not found"
+    cat: blog
+    known: ["blue"]
+  - name: Independent academia
+    uri_check: https://independent.academia.edu/{account}
+    uri_pretty: https://independent.academia.edu/{account}
+    e_code: 200
+    e_string: "- Academia.edu"
+    m_code: 404
+    m_string: "Academia.edu"
+    cat: blog
+    known: ["peter"]
+  - name: Quotev
+    uri_check: https://www.quotev.com/{account}
+    uri_pretty: https://www.quotev.com/{account}
+    e_code: 200
+    e_string: "Quotev"
+    m_code: 404
+    m_string: "Page not found"
+    cat: blog
+    username_regex: "^[A-Za-z0-9._-]{3,20}$"
+  - name: Bear Blog
+    uri_check: https://{account}.bearblog.dev
+    uri_pretty: https://{account}.bearblog.dev
+    e_code: 200
+    e_string: "bearblog"
+    m_code: 404
+    m_string: "not found"
+    cat: blog
+    strip_bad_char: "."
+    username_regex: "^[A-Za-z0-9-]{1,63}$"
+  - name: Vocal
+    uri_check: https://vocal.media/authors/{account}
+    uri_pretty: https://vocal.media/authors/{account}
+    e_code: 200
+    e_string: "vocal.media"
+    m_code: 404
+    m_string: "Page not found"
+    cat: blog
 
 overrides:
   - name: Instagram
@@ -355,6 +602,42 @@ overrides:
     m_string: "error\": 404"
   - name: GitHub (User)
     username_regex: "^[A-Za-z0-9-]{1,39}$"
+  - name: WordPress.com (Deleted)
+    valid: false
+  - name: WordPress.org (Forums)
+    valid: false
+  - name: Medium
+    cat: blog
+  - name: tumblr
+    cat: blog
+  - name: Issuu
+    cat: blog
+  - name: HubPages
+    cat: blog
+  - name: Livejournal
+    cat: blog
+  - name: Blogspot
+    cat: blog
+  - name: Wattpad
+    cat: blog
+  - name: Hashnode
+    cat: blog
+  - name: Substack
+    cat: blog
+  - name: Archive of Our Own
+    cat: blog
+  - name: write.as
+    cat: blog
+  - name: GitBook
+    cat: blog
+  - name: Scribd
+    cat: blog
+  - name: Independent academia
+    cat: blog
+  - name: carrd.co
+    cat: blog
+  - name: InsaneJournal
+    cat: blog
 
 extractors:
   - site: GitHub (User)
@@ -422,6 +705,24 @@ extractors:
     avatar: profile_image
     bio: summary
     website: website_url
+  - site: Substack
+    kind: json
+    displayName: name
+    avatar: photo_url
+    bio: bio
+  - site: Wattpad
+    kind: json
+    displayName: name
+    avatar: avatar
+    bio: description
+  - site: WordPress.com (Public)
+    kind: json
+    displayName: name
+    bio: description
+    website: URL
+  - site: Hashnode
+    kind: json
+    displayName: data.user.username
   - site: Docker Hub
     kind: json
     displayName: username

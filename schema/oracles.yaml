@@ -35,7 +35,7 @@ oracles:
     handler: pinterest
   - id: tumblr
     name: Tumblr
-    category: social
+    category: blog
     handler: tumblr
   - id: imgur
     name: Imgur
@@ -343,11 +343,11 @@ oracles:
     handler: vsco
   - id: wattpad
     name: Wattpad
-    category: art
+    category: blog
     handler: wattpad
   - id: issuu
     name: Issuu
-    category: art
+    category: blog
     handler: issuu
   - id: lastpass
     name: LastPass
@@ -445,11 +445,11 @@ oracles:
     handler: kofi
   - id: hashnode
     name: Hashnode
-    category: coding
+    category: blog
     handler: hashnode
   - id: substack
     name: Substack
-    category: news
+    category: blog
     handler: substack
   - id: monday
     name: monday.com
@@ -553,7 +553,7 @@ oracles:
     handler: rumble
   - id: medium
     name: Medium
-    category: news
+    category: blog
     handler: medium
   - id: intercom
     name: Intercom
@@ -775,3 +775,11 @@ oracles:
     name: Supabase
     category: tech
     handler: supabase
+  - id: scribd
+    name: Scribd
+    category: blog
+    handler: scribd
+  - id: academia
+    name: Academia.edu
+    category: blog
+    handler: academia
