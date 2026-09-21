@@ -60,6 +60,24 @@ export function exportMarkdown(scan: ScanSummary, rows: LedgerRow[]): string {
       }
       lines.push("");
     }
+    if (d.aiChats) {
+      lines.push(
+        "## AI chats (public share / account signal)",
+        "",
+        `_${d.aiChats.disclaimer}_`,
+        "",
+      );
+      if (d.aiChats.publicShares.length) {
+        for (const s of d.aiChats.publicShares) {
+          lines.push(
+            `- ${s.product}: ${s.readable ? "open to read" : "not openly readable"} — [${s.url}](${s.url})${s.title ? ` — ${s.title}` : ""}`,
+          );
+        }
+      } else {
+        lines.push("- No public share URLs harvested. Account-exists rows in the ledger are signals, not transcripts.");
+      }
+      lines.push("");
+    }
   }
   if (scan.dossier && "dns" in scan.dossier && "domain" in scan.dossier) {
     const d = scan.dossier as HostDossier;
@@ -144,6 +162,17 @@ export function exportExecutiveHtml(scan: ScanSummary, rows: LedgerRow[], opts?:
         <li>DMARC ${escHtml(d.domainDmarc[0]?.raw ?? "none")}</li>
         <li>Gravatar ${d.gravatar?.exists ? escHtml(d.gravatar.displayName ?? "yes") : "no"}</li>
         ${d.hibp?.enabled ? `<li>HIBP breaches <strong>${d.hibp.breachCount}</strong></li>` : ""}
+        ${
+          d.aiChats
+            ? `<li>AI chats: <em>${escHtml(d.aiChats.disclaimer)}</em>${
+                d.aiChats.publicShares.length
+                  ? ` — ${d.aiChats.publicShares
+                      .map((s) => `${escHtml(s.product)} (${s.readable ? "open to read" : "gated"})`)
+                      .join(", ")}`
+                  : " — no public shares harvested"
+              }</li>`
+            : ""
+        }
       </ul>`,
     );
   }

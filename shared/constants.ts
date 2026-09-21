@@ -126,3 +126,6 @@ export const WAF_HEADER_HINTS = [
 
 export const AUTHORIZED_USE =
   "Umbra is a public-OSINT workstation. Run it only against identifiers you are authorized to investigate. It never sends SMTP or password-reset mail to a subject.";
+
+export const AI_CHAT_DISCLAIMER =
+  "Public share / account signal — not a private transcript. Umbra never opens authenticated chats, cookies, inboxes, or non-public conversations.";

@@ -86,6 +86,17 @@ export function buildIdentityGraph(input: {
       });
       addEdge(edges, centerId, hibpId, "breach");
     }
+    for (const share of d.aiChats?.publicShares ?? []) {
+      const id = `profile:${share.url}`;
+      addNode(nodes, {
+        id,
+        kind: "profile",
+        label: `${share.product} public share`,
+        status: share.readable ? "found" : "blocked",
+        url: share.url,
+      });
+      addEdge(edges, centerId, id, "public-share");
+    }
   }
   if (dossier && "e164" in dossier) {
     const d = dossier as PhoneDossier;
@@ -124,7 +135,7 @@ export function buildIdentityGraph(input: {
 
   const found = input.rows.filter((r) => r.status === "found");
   for (const row of found.slice(0, 80)) {
-    const id = `profile:${row.site}`;
+    const id = row.category === "ai" ? `profile:${row.url}` : `profile:${row.site}`;
     addNode(nodes, {
       id,
       kind: row.category === "oracle" || row.category === "identity" ? "oracle" : "profile",

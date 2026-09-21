@@ -64,4 +64,4 @@ extractors:
 
 ## Email oracles
 
-Oracles must be silent: they read public signup / login / profile endpoints only. Umbra will not call password-reset endpoints that email the subject. The HIBP oracle is omitted entirely unless `HIBP_API_KEY` is set.
+Oracles must be silent: they read public signup / login / profile endpoints only. Umbra will not call password-reset endpoints that email the subject. The HIBP oracle is omitted entirely unless `HIBP_API_KEY` is set. Category `ai` is for AI-product account signals (ChatGPT / Character.AI). Google Gemini is the existing Gmail oracle; Microsoft Copilot is the existing Microsoft oracle; pack `gemini` is the crypto exchange. Public conversation shares are harvested at scan time (search + GET-verify), not via private sessions.
