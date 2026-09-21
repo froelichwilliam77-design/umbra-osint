@@ -125,6 +125,9 @@ export default function App() {
   const [alertChannels, setAlertChannels] = useState<AlertChannelsPublic | null>(null);
   const [alertSetup, setAlertSetup] = useState<AlertSetupPublic | null>(null);
   const [powerOn, setPowerOn] = useState(false);
+  const [autoPivotsOn, setAutoPivotsOn] = useState(() => localStorage.getItem("umbra.autoPivots") !== "0");
+  const [variantsOn, setVariantsOn] = useState(() => localStorage.getItem("umbra.variants") !== "0");
+  const [queuedPivots, setQueuedPivots] = useState<{ query: string; mode: ScanMode; reason?: string }[]>([]);
   const [powerMeta, setPowerMeta] = useState<{
     enabled?: boolean;
     allowed?: boolean;
@@ -142,7 +145,8 @@ export default function App() {
   const rowsRef = useRef<LedgerRow[]>([]);
   const scanRef = useRef<ScanSummary | null>(null);
   const graphRef = useRef<IdentityGraph | null>(null);
-  const pivotQueueRef = useRef<{ query: string; mode: ScanMode }[]>([]);
+  const pivotQueueRef = useRef<{ query: string; mode: ScanMode; depth?: number; profile?: ScanProfile }[]>([]);
+  const seenPivotsRef = useRef<Set<string>>(new Set());
   const wantStreamRef = useRef(false);
   const streamScanIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -307,10 +311,34 @@ export default function App() {
     setBusy(false);
     if (summary.abortReason) setNotice(explainScanAbort(summary.abortReason));
     void persistActive(summary).then(() => {
+      if (autoPivotsOn && summary.queuedPivots?.length) {
+        for (const job of summary.queuedPivots) {
+          const key = `${job.mode}:${job.query.toLowerCase()}`;
+          if (seenPivotsRef.current.has(key)) continue;
+          seenPivotsRef.current.add(key);
+          pivotQueueRef.current.push({
+            query: job.query,
+            mode: job.mode,
+            depth: (summary.pivotDepth ?? 0) + 1,
+            profile: job.profile,
+          });
+        }
+        setQueuedPivots(pivotQueueRef.current.map((p) => ({ query: p.query, mode: p.mode, reason: "auto" })));
+      }
       const next = pivotQueueRef.current.shift();
+      setQueuedPivots(pivotQueueRef.current.map((p) => ({ query: p.query, mode: p.mode })));
       if (next) {
-        setNotice(`Auto-pivot: ${next.mode} ${next.query}`);
-        void start({ query: next.query, mode: next.mode, keepPivots: true });
+        setQuery(next.query);
+        setMode(next.mode);
+        setNotice(`Auto-pivot: ${next.mode} ${next.query}${pivotQueueRef.current.length ? ` · ${pivotQueueRef.current.length} more queued` : ""}`);
+        void start({
+          query: next.query,
+          mode: next.mode,
+          keepPivots: true,
+          pivotDepth: next.depth ?? (summary.pivotDepth ?? 0) + 1,
+          profileOverride: next.profile,
+          source: "auto-pivot",
+        });
       }
     });
   };
@@ -393,7 +421,14 @@ export default function App() {
     };
   };
 
-  const start = async (override?: { query?: string; mode?: ScanMode; keepPivots?: boolean }) => {
+  const start = async (override?: {
+    query?: string;
+    mode?: ScanMode;
+    keepPivots?: boolean;
+    pivotDepth?: number;
+    profileOverride?: ScanProfile;
+    source?: "user" | "auto-pivot";
+  }) => {
     const q = (override?.query ?? query).trim();
     if (!q) return;
     setError(null);
@@ -408,7 +443,13 @@ export default function App() {
     setSearch("");
     setGraph(null);
     setCompare(null);
-    if (!override?.keepPivots) pivotQueueRef.current = [];
+    if (!override?.keepPivots) {
+      pivotQueueRef.current = [];
+      seenPivotsRef.current = new Set();
+      setQueuedPivots([]);
+    }
+    const seedKey = `${override?.mode ?? mode}:${q.toLowerCase()}`;
+    seenPivotsRef.current.add(seedKey);
     stopStream();
     try {
       const payload = {
@@ -416,8 +457,12 @@ export default function App() {
         mode: override?.mode ?? mode,
         includeNsfw,
         replace: true,
-        profile,
+        profile: override?.profileOverride ?? profile,
         power: powerOn,
+        autoPivots: autoPivotsOn,
+        variants: variantsOn,
+        pivotDepth: override?.pivotDepth ?? 0,
+        source: override?.source ?? "user",
       };
       let res = await fetch("/api/scans", {
         method: "POST",
@@ -460,6 +505,7 @@ export default function App() {
 
   const cancel = async () => {
     pivotQueueRef.current = [];
+    setQueuedPivots([]);
     const id = streamScanIdRef.current ?? scanRef.current?.id ?? scan?.id;
     stopStream();
     batcherRef.current?.flush();
@@ -549,7 +595,9 @@ export default function App() {
           r.site.toLowerCase().includes(q) ||
           r.url.toLowerCase().includes(q) ||
           r.reason.toLowerCase().includes(q) ||
-          (r.metadata?.displayName ?? "").toLowerCase().includes(q)
+          (r.metadata?.displayName ?? "").toLowerCase().includes(q) ||
+          (r.variant ?? "").toLowerCase().includes(q) ||
+          (r.seed ?? "").toLowerCase().includes(q)
         );
       }
       return true;
@@ -557,6 +605,10 @@ export default function App() {
     return filtered.sort((a, b) => {
       const rank = STATUS_RANK[a.status] - STATUS_RANK[b.status];
       if (rank !== 0) return rank;
+      const conf = { high: 0, medium: 1, low: 2 };
+      const ca = conf[a.confidence ?? "medium"] - conf[b.confidence ?? "medium"];
+      if (ca !== 0) return ca;
+      if (Boolean(a.variant) !== Boolean(b.variant)) return a.variant ? 1 : -1;
       return a.site.localeCompare(b.site);
     });
   }, [rows, filter, category, search]);
@@ -568,6 +620,10 @@ export default function App() {
     () =>
       rows
         .filter((r) => r.status === "found" && r.category !== "dns")
+        .sort((a, b) => {
+          const conf = { high: 0, medium: 1, low: 2 };
+          return (conf[a.confidence ?? "medium"] ?? 1) - (conf[b.confidence ?? "medium"] ?? 1);
+        })
         .slice(0, 16),
     [rows],
   );
@@ -636,7 +692,7 @@ export default function App() {
             </div>
             <p className="mt-1 hidden max-w-2xl text-xs text-fog-300 sm:block">
               {schema
-                ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles${schema.oraclesLean ? ` · lean ${schema.oraclesLean}` : ""} · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock overlay` : ""}`
+                ? `${schema.handleSites} handle sites · lean ${schema.leanSites ?? 200} · ${schema.oracles} mail oracles${schema.oraclesLean ? ` · lean ${schema.oraclesLean}` : ""} · ${schema.disposableDomains} disposable domains${schema.sherlockSites ? ` · ${schema.sherlockSites} Sherlock` : ""}${schema.maigretSites ? ` · ${schema.maigretSites} Maigret` : ""}`
                 : "Loading schema…"}
             </p>
           </div>
@@ -784,13 +840,58 @@ export default function App() {
           >
             Power
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !autoPivotsOn;
+              setAutoPivotsOn(next);
+              localStorage.setItem("umbra.autoPivots", next ? "1" : "0");
+              if (!next) {
+                pivotQueueRef.current = [];
+                setQueuedPivots([]);
+              }
+            }}
+            className={`tap-lg rounded-full border px-4 py-2 font-mono text-xs uppercase tracking-wide ${
+              autoPivotsOn ? "border-accent bg-accent/15 text-fog-100" : "border-ink-600 text-fog-500 hover:border-fog-500"
+            }`}
+          >
+            Auto-pivots
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !variantsOn;
+              setVariantsOn(next);
+              localStorage.setItem("umbra.variants", next ? "1" : "0");
+            }}
+            className={`tap-lg rounded-full border px-4 py-2 font-mono text-xs uppercase tracking-wide ${
+              variantsOn ? "border-accent bg-accent/15 text-fog-100" : "border-ink-600 text-fog-500 hover:border-fog-500"
+            }`}
+          >
+            Variants
+          </button>
           <span className="hidden font-mono text-[11px] text-fog-300 sm:inline">
             {powerOn
               ? "Power: Full map allowed + curl-impersonate (UMBRA_CURL_MAX≥1). Playwright stays off unless UMBRA_PLAYWRIGHT=1."
               : profile === "lean"
                 ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
-                : "Full: all clearnet sites + remaining mail oracles. TLS children stay off on 1 GB unless Power is on."}
+                : `Full: ${schema?.handleSites ?? "all"} unique sites (WMN + Sherlock + Maigret) + remaining mail oracles. TLS children stay off on 1 GB unless Power is on.`}
           </span>
+          {queuedPivots.length > 0 && (
+            <span className="font-mono text-[11px] text-accent">
+              Queued: {queuedPivots.map((p) => `${p.mode} ${p.query}`).join(" · ")}
+              <button
+                type="button"
+                className="ml-2 underline"
+                onClick={() => {
+                  pivotQueueRef.current = [];
+                  setQueuedPivots([]);
+                }}
+              >
+                clear
+              </button>
+            </span>
+          )}
           {!powerOn && powerNote && <span className="hidden font-mono text-[11px] text-fog-500 md:inline">{powerNote}</span>}
         </div>
         <form
@@ -1078,6 +1179,8 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
       )}
       {selected.protection?.length ? <Field label="Protection" value={selected.protection.join(", ")} /> : null}
       <Field label="Via" value={selected.via ?? "undici"} />
+      {selected.confidence && <Field label="Confidence" value={selected.confidence} />}
+      {selected.variant && <Field label="Variant" value={`${selected.variant} (of ${selected.seed ?? selected.target})`} />}
       {selected.phash && <Field label="Avatar pHash" value={selected.phash} />}
       {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (
@@ -1234,7 +1337,7 @@ function MailCards({
             <p className="text-sm text-fog-100">Not queried</p>
             <p className="mt-1 text-xs text-fog-300">
               {dossier.hibp?.skipped ??
-                "Set HIBP_API_KEY in Railway Variables for live breach names and dates. Umbra never emails the subject."}
+                "Have I Been Pwned is off until you set HIBP_API_KEY in Railway → Variables. Umbra cannot invent a key. Public paste/stealer links below still work."}
             </p>
           </div>
         ) : dossier.hibp.skipped ? (

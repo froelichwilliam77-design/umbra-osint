@@ -6,6 +6,7 @@ import { FAST_TIER_SIZE, LEAN_SITE_CAP, type ScanProfile } from "../shared/scan-
 import type { SchemaStats } from "../shared/types.ts";
 import { fastTierSize, leanSiteCap } from "./limits.ts";
 import { selectMailOracles } from "./mail-priority.ts";
+import { normalizeCheckKey } from "./sherlock.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -60,6 +61,7 @@ export interface SchemaBundle {
   wmnSource: string;
   wmnSites: number;
   sherlockSites: number;
+  maigretSites: number;
   curatedSites: number;
 }
 
@@ -90,10 +92,20 @@ export function loadSchema(): SchemaBundle {
   );
 
   const byName = new Map<string, WmnSite>();
+  const byKey = new Set<string>();
+  const take = (site: WmnSite, source: string, overwrite: boolean) => {
+    if (!site?.name || !site.uri_check) return;
+    const key = normalizeCheckKey(site.uri_check);
+    if (!overwrite) {
+      if (byName.has(site.name)) return;
+      if (byKey.has(key)) return;
+    }
+    byName.set(site.name, { ...site, source: site.source ?? source });
+    byKey.add(key);
+  };
   for (const site of wmn.sites ?? []) {
     if (site.valid === false) continue;
-    if (!site.uri_check || !site.name) continue;
-    byName.set(site.name, { ...site, source: site.source ?? "wmn" });
+    take(site, "wmn", false);
   }
   let sherlock: { sites?: WmnSite[] } = { sites: [] };
   try {
@@ -102,12 +114,19 @@ export function loadSchema(): SchemaBundle {
     sherlock = { sites: [] };
   }
   for (const site of sherlock.sites ?? []) {
-    if (!site?.name || !site.uri_check) continue;
-    if (byName.has(site.name)) continue;
-    byName.set(site.name, { ...site, source: site.source ?? "sherlock" });
+    take(site, "sherlock", false);
+  }
+  let maigret: { sites?: WmnSite[] } = { sites: [] };
+  try {
+    maigret = loadJson<{ sites?: WmnSite[] }>("schema/maigret-overlay.json");
+  } catch {
+    maigret = { sites: [] };
+  }
+  for (const site of maigret.sites ?? []) {
+    take(site, "maigret", false);
   }
   for (const site of curated.sites ?? []) {
-    byName.set(site.name, { ...site, source: "curated" });
+    take(site, "curated", true);
   }
   for (const ov of curated.overrides ?? []) {
     const cur = byName.get(ov.name);
@@ -128,9 +147,10 @@ export function loadSchema(): SchemaBundle {
     oracles: oraclesDoc.oracles ?? [],
     disposable,
     wmnImportedAt,
-    wmnSource: "schema/wmn-data.json (WhatsMyName) + schema/sherlock-overlay.json",
+    wmnSource: "schema/wmn-data.json (WhatsMyName) + schema/sherlock-overlay.json + schema/maigret-overlay.json",
     wmnSites: (wmn.sites ?? []).length,
     sherlockSites: (sherlock.sites ?? []).length,
+    maigretSites: (maigret.sites ?? []).length,
     curatedSites: (curated.sites ?? []).length,
   };
   return cache;
@@ -178,13 +198,14 @@ export function schemaStats(): SchemaStats {
     wmnSource: s.wmnSource,
     wmnSites: s.wmnSites,
     sherlockSites: s.sherlockSites,
+    maigretSites: s.maigretSites,
     curatedSites: s.curatedSites,
     leanSites: sitesForScan(false, { profile: "lean" }).length,
   };
 }
 
 const HIGH_SIGNAL =
-  /\b(github|gitlab|gitea|gitee|bitbucket|codeberg|sourcehut|sourceforge|launchpad|stackoverflow|stack overflow|hacker news|hackerone|keybase|wikipedia|reddit|youtube|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|steam|spotify|soundcloud|bandcamp|last\.fm|npm|crates|pypi|rubygems|packagist|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|hashnode|dev\.to|behance|dribbble|artstation|deviantart|vimeo|npmjs|dockerhub|docker hub|lichess|chess\.com|duolingo|strava|goodreads|letterboxd|producthunt|product hunt|buymeacoffee|ko-fi|kofi|gumroad|figma|canva|notion|slack|atlassian|trello|jira)\b/i;
+  /\b(github|gitlab|gitea|gitee|bitbucket|codeberg|sourcehut|sourceforge|launchpad|stackoverflow|stack overflow|hacker news|hackerone|bugcrowd|keybase|wikipedia|reddit|youtube|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|steam|spotify|soundcloud|bandcamp|last\.fm|npm|crates|pypi|rubygems|packagist|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|hashnode|dev\.to|behance|dribbble|artstation|deviantart|vimeo|npmjs|dockerhub|docker hub|lichess|chess\.com|duolingo|strava|goodreads|letterboxd|producthunt|product hunt|buymeacoffee|ko-fi|kofi|gumroad|figma|canva|notion|slack|atlassian|trello|jira|orcid|anilist|imdb|trakt|mixcloud|discogs|itch\.io|gog\.com|humble|observable|glitch|codesandbox|gitpod|sourcehut|sr\.ht|hackerone|kaggle|leetcode|codeforces|hackerrank|tryhackme|hackthebox|namemc|modrinth|curseforge|roblox|epicgames|playstation|nintendo|xbox|battlenet|riot|ubisoft)\b/i;
 
 /** WAF/CAPTCHA-gated handle modules that rarely yield found on lean (no TLS children). */
 const CHRONIC_BLOCKED_HANDLES =
@@ -220,6 +241,8 @@ export function siteRank(site: WmnSite): number {
   else if (cat === "xx nsfw xx") score -= 80;
   if (isHighSignalSite(site)) score += 70;
   if (looksLikeApiCheck(site)) score += 22;
+  if (site.e_string) score += 14;
+  else score -= 10;
   if (site.known?.length) score += 10;
   if (!site.protection?.length) score += 16;
   else score -= 28;

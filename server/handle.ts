@@ -17,7 +17,17 @@ import {
   playwrightMax,
   shouldEscalateBrowser,
 } from "./playwright-pool.ts";
-import { categoryOf, loadSchema, sitesForScan, splitFastTier, type WmnSite } from "./schema.ts";
+import { categoryOf, loadSchema, rankSites, sitesForScan, splitFastTier, type WmnSite } from "./schema.ts";
+import { handleVariantProbeCount, handleVariants, variantHandleCap, variantSiteCap, variantsEnabled } from "./variants.ts";
+
+export function handleScanProbeCount(
+  includeNsfw: boolean,
+  opts: { profile: ScanProfile; variants?: boolean; power?: boolean },
+): number {
+  const base = sitesForScan(includeNsfw, { profile: opts.profile }).length;
+  if (!variantsEnabled(opts.variants)) return base;
+  return base + handleVariantProbeCount(opts.profile, { variants: opts.variants, power: opts.power });
+}
 
 const SAFE_HANDLE = /^[A-Za-z0-9._-]+$/;
 
@@ -87,9 +97,17 @@ async function fetchProbe(req: HttpRequest, protection?: string[]): Promise<Http
   return res;
 }
 
-function rowBase(scanId: string, handle: string, site: WmnSite, url: string, pretty: string | undefined, method: string): Omit<LedgerRow, "status" | "reason"> {
+function rowBase(
+  scanId: string,
+  handle: string,
+  site: WmnSite,
+  url: string,
+  pretty: string | undefined,
+  method: string,
+  meta?: { seed?: string; variant?: string },
+): Omit<LedgerRow, "status" | "reason"> {
   return {
-    id: `${scanId}:${site.name}`,
+    id: meta?.variant ? `${scanId}:${meta.variant}:${site.name}` : `${scanId}:${site.name}`,
     scanId,
     mode: "handle",
     target: handle,
@@ -99,6 +117,8 @@ function rowBase(scanId: string, handle: string, site: WmnSite, url: string, pre
     profileUrl: pretty,
     method,
     protection: site.protection,
+    seed: meta?.seed,
+    variant: meta?.variant,
   };
 }
 
@@ -106,14 +126,16 @@ export async function probeSite(
   scanId: string,
   handle: string,
   site: WmnSite,
+  meta?: { seed?: string; variant?: string },
 ): Promise<LedgerRow> {
   const allowed = handleAllowed(handle, site.username_regex);
   const { url, pretty, method, headers, body } = materialize(site, handle);
   if (!allowed.ok) {
     return {
-      ...rowBase(scanId, handle, site, url, pretty, method),
+      ...rowBase(scanId, handle, site, url, pretty, method, meta),
       status: "invalid",
       reason: allowed.reason ?? "Handle skipped for this site.",
+      confidence: "high",
     };
   }
 
@@ -169,20 +191,22 @@ export async function probeSite(
 
   if (res.ssrf) {
     return {
-      ...rowBase(scanId, handle, site, url, pretty, method),
+      ...rowBase(scanId, handle, site, url, pretty, method, meta),
       status: "invalid",
       reason: res.error ?? "SSRF blocked",
       httpStatus: res.status,
       latencyMs: res.latencyMs,
+      confidence: "high",
     };
   }
 
   if (res.error && res.status === 0) {
     return {
-      ...rowBase(scanId, handle, site, url, pretty, method),
+      ...rowBase(scanId, handle, site, url, pretty, method, meta),
       status: "error",
       reason: res.error,
       latencyMs: res.latencyMs,
+      confidence: "low",
     };
   }
 
@@ -210,9 +234,11 @@ export async function probeSite(
       : undefined;
 
   return {
-    ...rowBase(scanId, handle, site, url, pretty, method),
+    ...rowBase(scanId, handle, site, url, pretty, method, meta),
     status: verdict.status,
-    reason: verdict.reason,
+    reason: meta?.variant
+      ? `${verdict.reason} (variant ${meta.variant} of ${meta.seed ?? handle})`
+      : verdict.reason,
     profileUrl: pretty ?? (verdict.status === "found" ? res.finalUrl : undefined),
     httpStatus: res.status,
     finalUrl: res.finalUrl,
@@ -221,6 +247,7 @@ export async function probeSite(
     latencyMs: res.latencyMs,
     metadata,
     via: res.via,
+    confidence: verdict.confidence,
   };
 }
 
@@ -232,12 +259,14 @@ export async function runHandleScan(
     workers: number;
     perHost: number;
     profile?: ScanProfile;
+    power?: boolean;
+    variants?: boolean;
     onRow: (row: LedgerRow) => void;
     pool?: HostPool;
     onPool?: (pool: HostPool) => void;
     onNotice?: (message: string) => void;
   },
-): Promise<void> {
+): Promise<string[]> {
   const profile = opts.profile ?? "full";
   const sites = sitesForScan(opts.includeNsfw, { profile });
   const { fast, rest } = profile === "full" ? splitFastTier(sites) : { fast: sites, rest: [] as typeof sites };
@@ -245,21 +274,22 @@ export async function runHandleScan(
   opts.onPool?.(pool);
   let playwrightLeft = playwrightEnabled() ? playwrightMax() : 0;
 
-  const runChunk = async (chunk: typeof sites) => {
+  const runChunk = async (chunk: typeof sites, account: string, meta?: { seed?: string; variant?: string }) => {
     await Promise.all(
       chunk.map((site) =>
         pool.schedule(hostFromUrl(site.uri_check), async () => {
           const protectedHost = Boolean(site.protection?.length);
           await jitter(protectedHost ? 160 : 80, protectedHost ? 520 : 280);
           if (pool.isAborted) return;
-          let row = await probeSite(scanId, handle, site);
+          let row = await probeSite(scanId, account, site, meta);
           if (
             playwrightLeft > 0 &&
             !pool.isAborted &&
+            !meta?.variant &&
             shouldEscalateBrowser(row.status, row.reason, row.method)
           ) {
             playwrightLeft -= 1;
-            const { url, pretty, headers } = materialize(site, handle);
+            const { url, pretty, headers } = materialize(site, account);
             const pw = await fetchPlaywright({
               url,
               method: "GET",
@@ -280,7 +310,7 @@ export async function runHandleScan(
                   headers: pw.headers,
                   requestedUrl: url,
                   finalUrl: pw.finalUrl,
-                  account: handle,
+                  account,
                 },
               );
               row = {
@@ -292,6 +322,7 @@ export async function runHandleScan(
                 bodyExcerpt: excerpt(pw.body, verdict.existHit ? site.e_string : site.m_string),
                 latencyMs: (row.latencyMs ?? 0) + pw.latencyMs,
                 via: "playwright",
+                confidence: verdict.confidence,
                 profileUrl: pretty ?? (verdict.status === "found" ? pw.finalUrl : row.profileUrl),
                 metadata:
                   verdict.status === "found"
@@ -306,10 +337,26 @@ export async function runHandleScan(
     );
   };
 
-  await runChunk(fast);
+  await runChunk(fast, handle);
   if (rest.length && !pool.isAborted) {
     opts.onNotice?.(`Fast tier done (${fast.length} high-signal sites). Continuing ${rest.length} more…`);
-    await runChunk(rest);
+    await runChunk(rest, handle);
+  }
+
+  const variantList =
+    variantsEnabled(opts.variants) && !pool.isAborted
+      ? handleVariants(handle, variantHandleCap(profile, opts.power))
+      : [];
+  if (variantList.length && !pool.isAborted) {
+    const vSites = rankSites(sites).slice(0, variantSiteCap(profile, opts.power));
+    opts.onNotice?.(
+      `Handle variants of ${handle}: ${variantList.join(", ")} — ${vSites.length} high-signal sites each (capped).`,
+    );
+    for (const v of variantList) {
+      if (pool.isAborted) break;
+      await runChunk(vSites, v, { seed: handle, variant: v });
+    }
   }
   pool.throwIfAborted();
+  return variantList;
 }

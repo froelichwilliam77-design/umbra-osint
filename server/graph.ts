@@ -43,6 +43,17 @@ export function buildIdentityGraph(input: {
     pivot: pivotFor(input.summary.mode, input.summary.query),
   });
 
+  for (const variant of input.summary.variantList ?? []) {
+    const id = `handle:${variant}`;
+    addNode(nodes, {
+      id,
+      kind: "handle",
+      label: `${variant} (variant)`,
+      pivot: { query: variant, mode: "handle" },
+    });
+    addEdge(edges, centerId, id, "variant");
+  }
+
   const dossier = input.summary.dossier;
   if (dossier && "email" in dossier) {
     const d = dossier as MailDossier;
@@ -121,9 +132,11 @@ export function buildIdentityGraph(input: {
       status: row.status,
       url: row.profileUrl || row.url,
       pivot:
-        input.summary.mode === "mail" && row.category !== "dns"
-          ? { query: input.summary.query.split("@")[0] ?? input.summary.query, mode: "handle" }
-          : undefined,
+        row.variant && row.seed
+          ? { query: row.variant, mode: "handle" }
+          : input.summary.mode === "mail" && row.category !== "dns"
+            ? { query: input.summary.query.split("@")[0] ?? input.summary.query, mode: "handle" }
+            : undefined,
     });
     addEdge(edges, centerId, id, "found");
     if (row.phash) {

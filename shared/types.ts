@@ -73,6 +73,12 @@ export interface LedgerRow {
   protection?: string[];
   phash?: string;
   via?: "undici" | "curl-impersonate" | "playwright";
+  /** Match confidence — high beats medium/low when ranking founds. */
+  confidence?: "high" | "medium" | "low";
+  /** Original username when this row is a handle variant. */
+  seed?: string;
+  /** Mutated handle probed for this row (when different from seed). */
+  variant?: string;
 }
 
 export interface PreflightResult {
@@ -344,8 +350,13 @@ export interface ScanSummary {
   siteCount: number;
   profile?: "lean" | "full";
   profileNote?: string;
-  source?: "user" | "watch" | "batch";
+  source?: "user" | "watch" | "batch" | "auto-pivot";
   power?: boolean;
+  autoPivots?: boolean;
+  variants?: boolean;
+  pivotDepth?: number;
+  variantList?: string[];
+  queuedPivots?: { query: string; mode: ScanMode; reason: string; profile?: "lean" | "full" }[];
 }
 
 export type ScanEvent =
@@ -370,6 +381,7 @@ export interface SchemaStats {
   wmnSource?: string;
   wmnSites?: number;
   sherlockSites?: number;
+  maigretSites?: number;
   curatedSites?: number;
   leanSites?: number;
   oraclesLean?: number;

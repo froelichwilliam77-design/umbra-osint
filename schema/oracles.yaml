@@ -651,3 +651,127 @@ oracles:
     name: Netflix
     category: video
     handler: netflix
+  - id: amazon
+    name: Amazon
+    category: shopping
+    handler: amazon
+  - id: quora
+    name: Quora
+    category: social
+    handler: quora
+  - id: lichess
+    name: Lichess
+    category: gaming
+    handler: lichess
+  - id: kaggle
+    name: Kaggle
+    category: coding
+    handler: kaggle
+  - id: hackerone
+    name: HackerOne
+    category: coding
+    handler: hackerone
+  - id: bandcamp
+    name: Bandcamp
+    category: music
+    handler: bandcamp
+  - id: orcid
+    name: ORCID
+    category: identity
+    handler: orcid
+  - id: sourcehut
+    name: SourceHut
+    category: coding
+    handler: sourcehut
+  - id: codeberg
+    name: Codeberg
+    category: coding
+    handler: codeberg
+  - id: codesandbox
+    name: CodeSandbox
+    category: coding
+    handler: codesandbox
+  - id: gitpod
+    name: Gitpod
+    category: coding
+    handler: gitpod
+  - id: gemini
+    name: Gemini
+    category: finance
+    handler: gemini
+  - id: render
+    name: Render
+    category: tech
+    handler: render
+  - id: flyio
+    name: Fly.io
+    category: tech
+    handler: flyio
+  - id: brevo
+    name: Brevo
+    category: business
+    handler: brevo
+  - id: mailgun
+    name: Mailgun
+    category: tech
+    handler: mailgun
+  - id: postmark
+    name: Postmark
+    category: tech
+    handler: postmark
+  - id: bitly
+    name: Bitly
+    category: tech
+    handler: bitly
+  - id: anilist
+    name: AniList
+    category: hobby
+    handler: anilist
+  - id: goodreads
+    name: Goodreads
+    category: hobby
+    handler: goodreads
+  - id: peloton
+    name: Peloton
+    category: hobby
+    handler: peloton
+  - id: fitbit
+    name: Fitbit
+    category: hobby
+    handler: fitbit
+  - id: alltrails
+    name: AllTrails
+    category: hobby
+    handler: alltrails
+  - id: humble
+    name: Humble Bundle
+    category: gaming
+    handler: humble
+  - id: gog
+    name: GOG
+    category: gaming
+    handler: gog
+  - id: ea
+    name: EA / Origin
+    category: gaming
+    handler: ea
+  - id: riot
+    name: Riot Games
+    category: gaming
+    handler: riot
+  - id: playstation
+    name: PlayStation Network
+    category: gaming
+    handler: playstation
+  - id: nintendo
+    name: Nintendo
+    category: gaming
+    handler: nintendo
+  - id: netlify
+    name: Netlify
+    category: tech
+    handler: netlify
+  - id: supabase
+    name: Supabase
+    category: tech
+    handler: supabase

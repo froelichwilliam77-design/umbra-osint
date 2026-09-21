@@ -71,6 +71,14 @@ export function VirtualLedger({
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm">{row.site}</span>
                   {row.metadata?.avatarUrl && <Badge tone={row.status}>{row.status}</Badge>}
+                  {row.variant && (
+                    <span className="shrink-0 rounded border border-accent/40 px-1 font-mono text-[10px] text-accent">
+                      {row.variant}
+                    </span>
+                  )}
+                  {row.confidence === "high" && row.status === "found" && (
+                    <span className="hidden shrink-0 font-mono text-[10px] text-signal-found sm:inline">high</span>
+                  )}
                   <span className="font-mono text-[10px] text-fog-500">{row.category}</span>
                   {row.metadata?.displayName && (
                     <span className="hidden truncate text-xs text-fog-300 sm:inline">

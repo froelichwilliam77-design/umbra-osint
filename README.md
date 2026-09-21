@@ -2,7 +2,7 @@
 
 Public-OSINT workstation for **handle**, **mail**, **host**, **phone**, and **crawl** reconnaissance. One search bar, auto-detected input, a live classified ledger, identity graph, and exports. Installable as a phone PWA.
 
-Umbra is not a mock. Handle mode walks WhatsMyName + a Sherlock overlay (**1001** unique platforms; 961 clearnet). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; 403/429/451/CAPTCHA stay **blocked**; HTTP 404/410 and soft-404 bodies stay **miss** with a reason. **Lean** ranks API and high-signal sites first, skips chronically WAF-gated modules (Instagram/TikTok/…), and caps at **~250** handle sites.
+Umbra is not a mock. Handle mode walks WhatsMyName + Sherlock + Maigret overlays (**deduped unique platforms**; lean still ~250). Dual-condition matching is case-insensitive and whitespace-tolerant; JSON bodies that name the account recover stale matchers; **403 with missing-profile copy is miss**, while 429/451/CAPTCHA/WAF challenges stay **blocked**. Empty exist-strings (typical Sherlock status_code) are **not** counted as found without account evidence. Found/miss/blocked rows carry a **confidence** tier. **Lean** ranks API and high-signal sites first, skips chronically WAF-gated modules (Instagram/TikTok/…), and caps at **~250** handle sites. **Full** uses the complete unique map; **Power** (~8 GB Railway) can afford that map plus in-scan handle **variants**.
 
 Mail mode builds a richer identity dossier (MX provider, disposable/role, Gravatar MD5+SHA256, M365 tenant, domain SPF/DMARC/DKIM/BIMI, RDAP created date, **Have I Been Pwned** when `HIBP_API_KEY` is set, handle + host pivots, open-in OSINT + public paste/stealer links) and runs silent registration oracles — never SMTP or password-reset mail. **Lean** (Railway default) probes **proven** oracles only (GitHub, Microsoft, Gravatar, Discord, …) and skips quarantined / chronically blocked modules. **Full** still ranks high-signal first, then the rest. Found rows surface immediately as **likely hits** while the scan continues.
 
@@ -22,7 +22,7 @@ Finished cases can mint **read-only share links** (`/share/:token` or `/c/:id?to
 
 **Batch recon** pastes a multiline list of emails/handles/hosts/phones and queues **lean** scans serially (`maxConcurrentScans=1`). Skip invalid lines, cancel the queue, combined JSON/CSV/Markdown export when it finishes.
 
-After mail or crawl, **Run pivots** queues follow-up scans (one at a time — 1 GB safe).
+After mail, handle, or crawl, **auto-pivots** queue the obvious follow-ups (mail → local-part handle, handle → likely mailboxes + related handles from found metadata) without a manual click. Depth/cap limits stop recursion. Toggle **Auto-pivots** off or **clear** the queued list. **Run pivots** remains for extra host/crawl hops. **Variants** (underscores, dots, digit strip/add) recon a capped high-signal slice in the same handle scan and show as chips on the ledger / identity graph.
 
 Paste an `https://` URL or **Crawl** a host for a bounded same-origin spider (25 pages lean / 100 power) that harvests emails, usernames, links, and headers into the ledger. SSRF still blocks private/loopback/metadata.
 
@@ -75,8 +75,8 @@ Live console screenshots:
 ### First recon
 
 1. Accept the authorized-use gate.
-2. `octocat` in Auto/Handle — classified hits across **1001** sites (961 clearnet). This upgrade local run: **197 found** / 503 miss / 170 blocked / **40 escalate** on 961 clearnet (v1.3.0: 193 found / 461 miss / 178 blocked / 105 escalate on 963). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph.
-3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (proven first on Lean). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set (breach names, dates, data classes + public paste/stealer links); otherwise it stays off with setup copy.
+2. `octocat` in Auto/Handle — classified hits across the unique site map (lean ~250; Full = WMN + Sherlock + Maigret, deduped). GitHub is **found** with avatar; matching avatars show pHash nodes on the identity graph. Variants of the seed (if enabled) recon a capped high-signal slice and appear as variant chips.
+3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (proven first on Lean). **Likely hits** appear while the scan continues. **Auto-pivots** (default on) queues handle `press` (and host on Full). **Run pivots** still works if you turned auto-pivots off. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off with setup copy — Umbra cannot invent a key.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
 6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases. **Share** mints a read-only public-OSINT link.
@@ -167,8 +167,8 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 
 | Mode | Pre-flight | Work |
 | --- | --- | --- |
-| **Handle** | length/charset regex | WhatsMyName + Sherlock overlay + curated YAML. Dual-condition match. TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters. |
-| **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in links) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. **Run pivots** → local-part handle then mail domain host. |
+| **Handle** | length/charset regex | WhatsMyName + Sherlock + Maigret overlays + curated YAML. Dual-condition match + confidence. In-scan variants (capped). TLS impersonation on protected hosts. Optional Playwright GET escalation. Avatar pHash clusters. Auto-pivots to likely mail / related handles. |
+| **Mail** | format, disposable list, MX | Identity dossier (Gravatar, M365, SPF/DMARC/DKIM/BIMI, **HIBP** when keyed, open-in links) + silent oracles (high-signal first). Lean skips quarantined/chronically blocked. Auto-pivots → local-part handle (host on Full). |
 | **Host** | hostname sanity | RDAP, DNS, SPF/DMARC/DKIM/BIMI, security.txt, HTTPS, TLS cert SAN. |
 | **Phone** | E.164 / libphonenumber | Country, NANP region, line type, timezone hint, optional Twilio/Numverify carrier, public lookup pivots. Never SMS. |
 | **Crawl** | http(s) URL or `crawl this host …`; SSRF | Bounded same-origin spider (25 pages lean / 100 power). Harvests emails, usernames, links, security headers. No form submit, no SMTP/SMS. |
@@ -178,12 +178,14 @@ UMBRA_PROXY=socks5://tor:9050 docker compose --profile tor up --build
 
 Ledger statuses: **found / miss / blocked / escalate / error / invalid**.
 
-- 403, 429, 451, 401, CAPTCHA, and WAF signatures are **blocked**, never a miss.
-- HTTP 404/410/400 without an exist match is **miss** with a reason.
+- 403, 429, 451, 401, CAPTCHA, and WAF signatures are **blocked**, never a miss — except **403/401 whose body is a missing-profile page**, which classify as **miss**.
+- HTTP 404/410/400 without an exist match → **miss** with a reason.
 - Redirects off-profile (login / explore / site root) are **miss** with a reason.
+- Empty exist-string + HTTP 200 without JSON/HTML account evidence → **escalate**, not a false found.
 - Exist/missing substring collisions (e.g. `"them":` vs `"them":null`) resolve to the more specific side.
 - Mail oracles recover unclassified JSON flags, taken/available copy, CSRF, and signup HTML into found/miss/blocked. Escalate is the last resort.
 - Chronically CSRF-dead oracles (X, Instagram, Facebook, TikTok, Myspace) are **quarantined**. Lean skips them entirely; Full emits them as **blocked** without a probe.
+- Ledger rows show **confidence** (high / medium / low) and **variant** chips when the probe used a mutated handle.
 
 ### Anti-bot (what actually ships)
 
@@ -195,7 +197,7 @@ Local without Docker: TLS impersonation is **partial** until `curl-impersonate` 
 
 ### Mail safety
 
-Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names, dates, data classes). Without a key the HIBP oracle is omitted entirely — never a fake miss. Public paste/stealer pivots (Google paste search, gists, Hudson Rock, IntelX, LeakIX) are links only — no paid scraping.
+Oracles read public signup, login-precheck, or profile endpoints only. There is no SMTP client and no password-reset mailer. Have I Been Pwned is a first-class dossier field when `HIBP_API_KEY` is set (breach names, dates, data classes). Without a key the HIBP oracle is omitted entirely — never a fake miss. Set `HIBP_API_KEY` in Railway Variables; Umbra cannot invent a key. Public paste/stealer pivots (Google paste search, gists, Hudson Rock, IntelX, LeakIX) are links only — no paid scraping.
 
 ### Phone safety
 
@@ -207,9 +209,10 @@ See [`schema/README.md`](schema/README.md).
 
 | File | Role |
 | --- | --- |
-| `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot (717) |
-| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN (267), dual-condition |
-| `schema/sites.curated.yaml` | Extra handle targets + JSON extractors |
+| `schema/wmn-data.json` | Vendored [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) snapshot |
+| `schema/sherlock-overlay.json` | [Sherlock](https://github.com/sherlock-project/sherlock) platforms not already in WMN, dual-condition |
+| `schema/maigret-overlay.json` | [Maigret](https://github.com/soxoj/maigret) platforms not already in WMN/Sherlock (Full map) |
+| `schema/sites.curated.yaml` | Extra handle targets + JSON extractors (wins on name collision) |
 | `schema/oracles.yaml` | Silent mail oracles |
 | `schema/disposable-domains.txt` | Burn-mail flags |
 
@@ -217,13 +220,13 @@ See [`schema/README.md`](schema/README.md).
 npm run sync:wmn
 ```
 
-That refreshes both WhatsMyName and the Sherlock overlay. Runtime import: `POST /api/schema/import` with a WhatsMyName JSON document.
+That refreshes WhatsMyName, the Sherlock overlay, and the Maigret overlay. Runtime import: `POST /api/schema/import` with a WhatsMyName JSON document.
 
 NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 
 ## API
 
-- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile?, power? }` (`mode`: `auto` \| `handle` \| `mail` \| `host` \| `phone` \| `crawl`; `profile`: `lean` \| `full`; `power`: TLS + 8 workers for this scan)
+- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile?, power?, autoPivots?, variants?, pivotDepth? }` (`mode`: `auto` \| `handle` \| `mail` \| `host` \| `phone` \| `crawl`; `profile`: `lean` \| `full`; `power`: TLS + 8 workers for this scan; `autoPivots`/`variants` default on)
 - `GET /api/scans` in-memory summaries (for compare)
 - `GET /api/scans/:id` snapshot + graph
 - `GET /api/scans/:id/events` SSE ledger (batched; found rows flush immediately)
@@ -261,7 +264,11 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `RESEND_API_KEY` or `UMBRA_RESEND_API_KEY` | unset | Resend HTTPS email. Preferred over SMTP when both are set. Needs `UMBRA_ALERT_EMAIL`. |
 | `UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID` | unset | Telegram bot alert (operator chat). No SMS. |
 | `UMBRA_WATCH_MIN_MS` | `3600000` (1h) | Minimum watch interval (tests may lower this). Default interval is 24h. |
-| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 250 curated + high-signal sites (chronic WAF skipped); `full` is the complete clearnet map (fast tier first). Does **not** by itself enable TLS on 1 GB. |
+| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 250 curated + high-signal sites (chronic WAF skipped); `full` is the complete unique clearnet map (WMN + Sherlock + Maigret, fast tier first). Does **not** by itself enable TLS on 1 GB. |
+| `UMBRA_VARIANTS` | `1` | `0` disables in-scan handle mutations. |
+| `UMBRA_VARIANT_CAP` / `UMBRA_VARIANT_SITES` | lean 2×40; full 4×80; Power 6×150 | Extra handles × high-signal sites per seed (capped). |
+| `UMBRA_AUTO_PIVOTS` | `1` | `0` disables automatic follow-up scans. |
+| `UMBRA_PIVOT_DEPTH` / `UMBRA_PIVOT_CAP` | `1` / lean 3 · full 4 · Power 6 | Recursion guard for auto-pivots. |
 | `UMBRA_POWER` | unset | `1` enables power: 8 workers, `UMBRA_CURL_MAX` at least 1, 100-page crawl. Also on when cgroup RAM ≥ ~1800 MB or the UI Power chip is used. Playwright stays off. |
 | `UMBRA_CRAWL_PAGES` | `25` lean / `100` power | Max pages for a same-origin crawl. |
 | `UMBRA_LEAN_SITES` | `250` | Cap for lean handle scans (50–400) |
@@ -281,7 +288,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
 | `NUMVERIFY_API_KEY` | unset | Optional Numvalidate. Skip if unset. |
-| `WMN_URL` / `SHERLOCK_URL` | upstream main | Overrides for `npm run sync:wmn` |
+| `WMN_URL` / `SHERLOCK_URL` / `MAIGRET_URL` | upstream main | Overrides for `npm run sync:wmn` |
 
 ## Optional Playwright / TLS (local)
 
