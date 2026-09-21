@@ -645,7 +645,11 @@ export default function App() {
             <span className="max-w-md leading-snug">{AUTHORIZED_USE}</span>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div
+          className={`mt-2 flex flex-wrap items-center gap-2 ${
+            busy || scan?.status === "running" ? "hidden sm:flex" : ""
+          }`}
+        >
           {installEvent && (
             <Button
               size="sm"
@@ -678,6 +682,25 @@ export default function App() {
             </Button>
           )}
         </div>
+        {(busy || scan?.status === "running") && (
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded bg-ink-700">
+              <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="shrink-0 font-mono text-xs text-fog-100">
+              {pct}%{progress ? ` · ${progress.done}/${progress.total}` : ""} · live
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="tap-lg shrink-0 border-signal-blocked text-signal-blocked"
+              onClick={() => void cancel()}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
       </header>
 
       {!powerOn && (powerMeta?.banner || (!powerMeta?.ramAllowsPower && powerMeta?.ramMb != null && powerMeta.ramMb < 1800)) && (
@@ -687,7 +710,7 @@ export default function App() {
         </div>
       )}
 
-      <section className="sticky top-[4.5rem] z-10 rounded-xl border border-ink-600 bg-ink-900/95 p-3 shadow-panel backdrop-blur">
+      <section className="rounded-xl border border-ink-600 bg-ink-900/95 p-3 shadow-panel">
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
@@ -821,26 +844,15 @@ export default function App() {
         )}
         {error && <p className="mt-2 text-sm text-signal-error">{error}</p>}
         {notice && <p className="mt-2 text-sm text-fog-300">{notice}</p>}
-        {scan && (
+        {scan && scan.status !== "running" && !busy && (
           <div className="mt-3 flex items-center gap-3">
             <div className="h-2.5 flex-1 overflow-hidden rounded bg-ink-700">
               <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
             </div>
             <span className="shrink-0 font-mono text-xs text-fog-100">
               {pct}%{progress ? ` · ${progress.done}/${progress.total}` : ""}
-              {scan.status === "running" || busy ? " · live" : scan.status === "cancelled" ? " · cancelled" : ""}
+              {scan.status === "cancelled" ? " · cancelled" : ""}
             </span>
-            {(busy || scan.status === "running") && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="tap-lg border-signal-blocked text-signal-blocked sm:hidden"
-                onClick={() => void cancel()}
-              >
-                Cancel
-              </Button>
-            )}
           </div>
         )}
       </section>
@@ -1216,50 +1228,6 @@ function MailCards({
           </Button>
         </div>
       </Card>
-      <Card icon={<Globe className="h-4 w-4" />} title="MX / auth" className="mail-extra">
-        {dossier.mx.length === 0 && <p className="text-sm text-fog-500">No MX records</p>}
-        {dossier.mx.slice(0, 3).map((m) => (
-          <p key={m.exchange} className="font-mono text-xs">
-            {m.priority} {m.exchange}
-          </p>
-        ))}
-        <p className="mt-2 break-all font-mono text-[11px] text-fog-500">
-          {dossier.domainSpf[0]?.raw ?? "no SPF"}
-        </p>
-        <p className="mt-1 break-all font-mono text-[11px] text-fog-500">
-          {dossier.domainDmarc[0]?.raw ?? "no DMARC"}
-        </p>
-        <p className="mt-2 font-mono text-[11px] text-fog-300">
-          DKIM {dossier.dkim.length ? dossier.dkim.map((d) => d.selector).join(", ") : "none"}
-        </p>
-        <p className="font-mono text-[11px] text-fog-500">
-          BIMI {dossier.bimi?.present ? "present" : "absent"}
-        </p>
-      </Card>
-      <Card icon={<Fingerprint className="h-4 w-4" />} title="Gravatar" className="mail-extra">
-        {dossier.gravatar?.exists ? (
-          <div className="flex gap-3">
-            {dossier.gravatar.avatarUrl && (
-              <img src={dossier.gravatar.avatarUrl} alt="" className="h-12 w-12 rounded-full" />
-            )}
-            <div>
-              <p>{dossier.gravatar.displayName ?? "Profile present"}</p>
-              <p className="font-mono text-[11px] text-fog-500">md5 {dossier.gravatar.hash}</p>
-              {dossier.gravatar.sha256 && (
-                <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <p className="text-sm text-fog-500">No public Gravatar profile</p>
-            <p className="mt-1 font-mono text-[11px] text-fog-500">md5 {dossier.gravatar?.hash}</p>
-            {dossier.gravatar?.sha256 && (
-              <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
-            )}
-          </div>
-        )}
-      </Card>
       <Card icon={<Fingerprint className="h-4 w-4" />} title="HIBP">
         {!dossier.hibp?.enabled ? (
           <div>
@@ -1308,6 +1276,50 @@ function MailCards({
               ))}
           </div>
         ) : null}
+      </Card>
+      <Card icon={<Globe className="h-4 w-4" />} title="MX / auth" className="mail-extra">
+        {dossier.mx.length === 0 && <p className="text-sm text-fog-500">No MX records</p>}
+        {dossier.mx.slice(0, 3).map((m) => (
+          <p key={m.exchange} className="font-mono text-xs">
+            {m.priority} {m.exchange}
+          </p>
+        ))}
+        <p className="mt-2 break-all font-mono text-[11px] text-fog-500">
+          {dossier.domainSpf[0]?.raw ?? "no SPF"}
+        </p>
+        <p className="mt-1 break-all font-mono text-[11px] text-fog-500">
+          {dossier.domainDmarc[0]?.raw ?? "no DMARC"}
+        </p>
+        <p className="mt-2 font-mono text-[11px] text-fog-300">
+          DKIM {dossier.dkim.length ? dossier.dkim.map((d) => d.selector).join(", ") : "none"}
+        </p>
+        <p className="font-mono text-[11px] text-fog-500">
+          BIMI {dossier.bimi?.present ? "present" : "absent"}
+        </p>
+      </Card>
+      <Card icon={<Fingerprint className="h-4 w-4" />} title="Gravatar" className="mail-extra">
+        {dossier.gravatar?.exists ? (
+          <div className="flex gap-3">
+            {dossier.gravatar.avatarUrl && (
+              <img src={dossier.gravatar.avatarUrl} alt="" className="h-12 w-12 rounded-full" />
+            )}
+            <div>
+              <p>{dossier.gravatar.displayName ?? "Profile present"}</p>
+              <p className="font-mono text-[11px] text-fog-500">md5 {dossier.gravatar.hash}</p>
+              {dossier.gravatar.sha256 && (
+                <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm text-fog-500">No public Gravatar profile</p>
+            <p className="mt-1 font-mono text-[11px] text-fog-500">md5 {dossier.gravatar?.hash}</p>
+            {dossier.gravatar?.sha256 && (
+              <p className="truncate font-mono text-[11px] text-fog-500">sha256 {dossier.gravatar.sha256}</p>
+            )}
+          </div>
+        )}
       </Card>
       <Card icon={<UserRound className="h-4 w-4" />} title="Pivots" className="mail-extra">
         {pivots.length === 0 && <p className="text-sm text-fog-500">No handle pivots</p>}

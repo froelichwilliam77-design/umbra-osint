@@ -61,7 +61,7 @@ export function BatchPanel({
     <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <button
         type="button"
-        className="flex w-full items-center justify-between text-left text-xs uppercase tracking-wide text-fog-300"
+        className="tap-lg flex w-full items-center justify-between text-left text-xs uppercase tracking-wide text-fog-300"
         onClick={() => setOpen((v) => !v)}
       >
         <span className="flex items-center gap-2">

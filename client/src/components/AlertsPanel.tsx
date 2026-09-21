@@ -133,7 +133,7 @@ export function AlertsPanel({
     <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-2 text-left"
+        className="tap-lg flex w-full items-center justify-between gap-2 text-left"
         onClick={() => setOpen((v) => !v)}
       >
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-fog-300">

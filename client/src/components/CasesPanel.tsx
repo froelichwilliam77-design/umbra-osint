@@ -81,7 +81,7 @@ export function CasesPanel({
       {shareUrl && <CopyDialog title="Read-only share URL" value={shareUrl} onClose={() => setShareUrl(null)} />}
       <button
         type="button"
-        className="mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-left"
+        className="tap-lg mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-left"
         onClick={() => setOpen((v) => !v)}
       >
         <div className="text-xs uppercase tracking-wide text-fog-300">

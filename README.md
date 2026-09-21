@@ -67,6 +67,8 @@ Live console screenshots:
 - v1.8 batch recon — [docs/screenshots/v18_batch_queue.webp](docs/screenshots/v18_batch_queue.webp)
 - v1.8 watches / alert channels — [docs/screenshots/v18_alerts_timeline.webp](docs/screenshots/v18_alerts_timeline.webp)
 - v1.8 read-only share — [docs/screenshots/v18_share_readonly.webp](docs/screenshots/v18_share_readonly.webp)
+- v1.9 phone mail (HIBP + paste pivots) — [docs/screenshots/v19_phone_mail_hibp.png](docs/screenshots/v19_phone_mail_hibp.png)
+- v1.9 phone Alerts / settings — [docs/screenshots/v19_phone_alerts_setup.png](docs/screenshots/v19_phone_alerts_setup.png)
 
 ### First recon
 
