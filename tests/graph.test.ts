@@ -56,6 +56,11 @@ describe("identity graph + compare", () => {
           localPartAnalysis: { localPart: "press", base: "press", patterns: ["role"], possibleNames: [] },
           openLinks: [],
           hibp: { enabled: true, breachCount: 1, breaches: [{ name: "Adobe", title: "Adobe" }] },
+          aiChats: {
+            disclaimer: "Public share / account signal — not a private transcript.",
+            searchLinks: [],
+            publicShares: [{ product: "ChatGPT", url: "https://chatgpt.com/share/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", readable: true }],
+          },
         },
       }),
       rows: [row("GitHub")],
@@ -63,6 +68,7 @@ describe("identity graph + compare", () => {
     expect(graph.nodes.some((n) => n.kind === "handle" && n.label === "press" && n.pivot?.mode === "handle")).toBe(true);
     expect(graph.nodes.some((n) => n.kind === "host" && n.label === "github.com" && n.pivot?.mode === "host")).toBe(true);
     expect(graph.nodes.some((n) => n.kind === "oracle" && /HIBP/.test(n.label))).toBe(true);
+    expect(graph.nodes.some((n) => n.label === "ChatGPT public share" && n.url?.includes("chatgpt.com/share"))).toBe(true);
   });
 
   it("compares found-only site sets", () => {

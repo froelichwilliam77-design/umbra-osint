@@ -18,6 +18,7 @@ import {
   shouldEscalateBrowser,
 } from "./playwright-pool.ts";
 import { categoryOf, loadSchema, rankSites, sitesForScan, splitFastTier, type WmnSite } from "./schema.ts";
+import { aiChatProbeCount } from "./ai-chats.ts";
 import { isRedditHost, redditAlternateUrl, redditNeedsRetry } from "./reddit.ts";
 import { handleVariantProbeCount, handleVariants, variantHandleCap, variantSiteCap, variantsEnabled } from "./variants.ts";
 
@@ -26,8 +27,10 @@ export function handleScanProbeCount(
   opts: { profile: ScanProfile; variants?: boolean; power?: boolean },
 ): number {
   const base = sitesForScan(includeNsfw, { profile: opts.profile }).length;
-  if (!variantsEnabled(opts.variants)) return base;
-  return base + handleVariantProbeCount(opts.profile, { variants: opts.variants, power: opts.power });
+  const variants = variantsEnabled(opts.variants)
+    ? handleVariantProbeCount(opts.profile, { variants: opts.variants, power: opts.power })
+    : 0;
+  return base + variants + aiChatProbeCount(opts.profile, opts.power);
 }
 
 const SAFE_HANDLE = /^[A-Za-z0-9._-]+$/;

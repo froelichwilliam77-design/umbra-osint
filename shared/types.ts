@@ -38,7 +38,8 @@ export type LedgerCategory =
   | "phone"
   | "graph"
   | "nsfw"
-  | "crawl";
+  | "crawl"
+  | "ai";
 
 export interface MetadataCard {
   displayName?: string;
@@ -141,6 +142,21 @@ export interface MailDossier {
   localPartAnalysis: LocalPartAnalysis;
   openLinks: { label: string; url: string }[];
   hibp?: HibpDossier;
+  /** Public AI-chat OSINT: account signals + readable share URLs. Never private transcripts. */
+  aiChats?: AiChatDossier;
+}
+
+export interface AiPublicShare {
+  product: string;
+  url: string;
+  readable: boolean;
+  title?: string;
+}
+
+export interface AiChatDossier {
+  disclaimer: string;
+  searchLinks: { label: string; url: string }[];
+  publicShares: AiPublicShare[];
 }
 
 export interface HibpBreach {

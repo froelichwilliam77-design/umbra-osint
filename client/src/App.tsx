@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
+  Bot,
   Download,
   Fingerprint,
   Globe,
@@ -49,7 +50,7 @@ import type {
   WatchAlert,
   WatchRecord,
 } from "@shared/types";
-import { AUTHORIZED_USE } from "@shared/constants";
+import { AUTHORIZED_USE, AI_CHAT_DISCLAIMER } from "@shared/constants";
 import { caseFromScan, loadCases, saveCaseHybrid, type CasesPersist } from "@/lib/cases";
 
 const STATUSES: LedgerStatus[] = ["found", "miss", "blocked", "escalate", "error", "invalid"];
@@ -1181,6 +1182,24 @@ function Inspector({ selected }: { selected: LedgerRow | null }) {
       <Field label="Via" value={selected.via ?? "undici"} />
       {selected.confidence && <Field label="Confidence" value={selected.confidence} />}
       {selected.variant && <Field label="Variant" value={`${selected.variant} (of ${selected.seed ?? selected.target})`} />}
+      {selected.metadata?.extra?.aiKind ? (
+        <div className="rounded-lg border border-accent/40 bg-ink-950 p-3 text-xs text-fog-300">
+          <div className="mb-1 font-mono text-[10px] uppercase text-accent">
+            {selected.metadata.extra.aiKind === "public-share" ? "Public share / account signal" : "AI account signal"}
+          </div>
+          <p>{AI_CHAT_DISCLAIMER}</p>
+          {selected.metadata.extra.product ? (
+            <p className="mt-1 font-mono text-[11px] text-fog-500">
+              {String(selected.metadata.extra.product)}
+              {selected.metadata.extra.aiKind === "public-share"
+                ? selected.metadata.extra.readable
+                  ? " · open to read"
+                  : " · not openly readable"
+                : " · account exists, not a transcript"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {selected.phash && <Field label="Avatar pHash" value={selected.phash} />}
       {selected.latencyMs != null && <Field label="Latency" value={`${selected.latencyMs} ms`} />}
       {selected.metadata && (
@@ -1377,6 +1396,46 @@ function MailCards({
                   {l.label}
                 </a>
               ))}
+          </div>
+        ) : null}
+      </Card>
+      <Card icon={<Bot className="h-4 w-4" />} title="AI chats">
+        <p className="text-[11px] leading-snug text-fog-500">{dossier.aiChats?.disclaimer ?? AI_CHAT_DISCLAIMER}</p>
+        {dossier.aiChats?.publicShares.length ? (
+          <ul className="mt-2 max-h-36 space-y-1 overflow-auto text-xs text-fog-300">
+            {dossier.aiChats.publicShares.map((s) => (
+              <li key={s.url}>
+                <a className="text-accent hover:underline" href={s.url} target="_blank" rel="noreferrer">
+                  {s.product}
+                  {s.title ? ` — ${s.title}` : ""}
+                </a>
+                <span className="ml-1 font-mono text-[10px] text-fog-500">
+                  {s.readable ? "open to read" : "gated"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-fog-100">No public share URLs harvested.</p>
+        )}
+        <p className="mt-2 text-[11px] text-fog-500">
+          ChatGPT, Gemini/Google, Copilot, HuggingChat, and Character.AI account-exists rows in the ledger are{" "}
+          <span className="text-fog-300">public share / account signal</span> — not private transcripts.
+        </p>
+        {dossier.aiChats?.searchLinks?.length ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {dossier.aiChats.searchLinks.map((l) => (
+              <a
+                key={l.label}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="tap-lg inline-flex items-center gap-1 rounded border border-ink-600 px-2 py-1 font-mono text-[10px] uppercase text-fog-300 hover:border-accent hover:text-fog-100"
+              >
+                <ExternalLink className="h-3 w-3" />
+                {l.label}
+              </a>
+            ))}
           </div>
         ) : null}
       </Card>

@@ -20,6 +20,7 @@ import {
   preflightPhone,
   resolveMode,
 } from "./detect.ts";
+import { emptyAiChatDossier, runAiChatRecon } from "./ai-chats.ts";
 import { autoPivotsEnabled, planAutoPivots } from "./auto-pivots.ts";
 import { handleScanProbeCount, runHandleScan } from "./handle.ts";
 import { variantsEnabled } from "./variants.ts";
@@ -205,7 +206,7 @@ export async function startScan(input: {
     kind === "handle"
       ? handleScanProbeCount(includeNsfw, { profile, variants: wantVariants, power: wantPower })
       : kind === "mail"
-        ? mailScanSiteCount(profile)
+        ? mailScanSiteCount(profile, wantPower)
         : kind === "phone"
           ? PHONE_LEDGER_COUNT
           : kind === "crawl"
@@ -219,8 +220,8 @@ export async function startScan(input: {
         : `Full profile: ${sitesForScan(includeNsfw, { profile: "full" }).length} unique sites (WMN + Sherlock + Maigret, deduped). Fast tier runs first, then the rest.${wantVariants ? " Variants recon a capped high-signal slice." : ""}`
       : kind === "mail"
         ? profile === "lean"
-          ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped (${siteCount} checks).`
-          : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe).`
+          ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped; public AI-share harvest (${siteCount} checks).`
+          : `Full mail: ${siteCount} silent oracles (high-signal first; quarantined still skipped without a probe) plus public AI-share harvest.`
         : kind === "crawl"
           ? `Bounded same-origin crawl (max pages from ${profile} / power). Private and loopback hosts are blocked.`
           : undefined;
@@ -512,6 +513,30 @@ async function execute(
       });
     }
     if (stored.summary.mode === "handle" || stored.summary.mode === "mail") {
+      if (stored.summary.status !== "cancelled") {
+        const seedText = stored.rows
+          .filter((r) => r.status === "found")
+          .map((r) => [r.url, r.profileUrl, r.reason, r.bodyExcerpt].filter(Boolean).join("\n"))
+          .join("\n");
+        emit(stored, { type: "notice", message: "Public AI-share harvest (search + GET-verify). Not private transcripts." });
+        const shares = await runAiChatRecon(stored.summary.id, stored.summary.query, {
+          profile,
+          power: stored.summary.power,
+          mode: stored.summary.mode,
+          onRow,
+          pool: stored.pool ?? undefined,
+          seedText,
+        });
+        if (stored.summary.mode === "mail" && stored.summary.dossier && "email" in stored.summary.dossier) {
+          const dossier = stored.summary.dossier as MailDossier;
+          dossier.aiChats = {
+            ...emptyAiChatDossier(stored.summary.query),
+            publicShares: shares,
+          };
+          stored.summary.dossier = dossier;
+          emit(stored, { type: "dossier", dossier });
+        }
+      }
       if (stored.summary.status !== "cancelled") {
         const hashed = await hashFoundAvatars(stored.rows);
         stored.summary.avatarClusters = hashed.clusters;

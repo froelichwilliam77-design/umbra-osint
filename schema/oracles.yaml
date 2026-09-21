@@ -572,8 +572,8 @@ oracles:
     category: business
     handler: convertkit
   - id: openai
-    name: OpenAI
-    category: tech
+    name: ChatGPT / OpenAI
+    category: ai
     handler: openai
   - id: linear
     name: Linear
@@ -783,3 +783,7 @@ oracles:
     name: Academia.edu
     category: blog
     handler: academia
+  - id: characterai
+    name: Character.AI
+    category: ai
+    handler: characterai

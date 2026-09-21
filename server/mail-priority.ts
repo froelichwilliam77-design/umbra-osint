@@ -21,6 +21,7 @@ export const HIGH_SIGNAL_ORACLES = new Set([
   "dropbox",
   "notion",
   "openai",
+  "characterai",
   "reddit",
   "steam",
   "flickr",

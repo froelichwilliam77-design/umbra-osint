@@ -1,6 +1,7 @@
 import dns from "node:dns/promises";
 import { ROLE_LOCAL_PARTS } from "../shared/constants.ts";
 import type { LedgerRow, MailDossier } from "../shared/types.ts";
+import { aiChatProbeCount, annotateAiOracle, emptyAiChatDossier } from "./ai-chats.ts";
 import { analyzeLocalPart } from "./detect.ts";
 import type { OracleVerdict } from "./oracles.ts";
 import { HostPool, hostFromUrl } from "./concurrency.ts";
@@ -17,9 +18,9 @@ import type { ScanProfile } from "../shared/scan-limits.ts";
 export { mailPivots, mailOpenLinks, sha256Email } from "./mail-util.ts";
 export { selectMailOracles } from "./mail-priority.ts";
 
-export function mailScanSiteCount(profile?: ScanProfile): number {
+export function mailScanSiteCount(profile?: ScanProfile, power?: boolean): number {
   const oracles = selectMailOracles(loadSchema().oracles, { profile });
-  return oracles.length + 8;
+  return oracles.length + 8 + aiChatProbeCount(profile ?? "full", power);
 }
 
 function guessProvider(domain: string, mx: { exchange: string }[]): string | undefined {
@@ -166,6 +167,7 @@ export async function buildMailDossier(email: string): Promise<MailDossier> {
     localPartAnalysis,
     openLinks: mailOpenLinks(normalized, gravatar.hash, gravatar.sha256),
     hibp,
+    aiChats: emptyAiChatDossier(normalized),
   };
 }
 
@@ -176,6 +178,7 @@ function rowFromVerdict(
   verdict: OracleVerdict,
   extras: Partial<LedgerRow>,
 ): LedgerRow {
+  const annotated = annotateAiOracle(spec, verdict.reason, extras);
   return {
     id: `${scanId}:oracle:${spec.id}`,
     scanId,
@@ -184,14 +187,14 @@ function rowFromVerdict(
     site: spec.name,
     category: spec.category,
     status: verdict.status,
-    reason: verdict.reason,
+    reason: annotated.reason,
     url: extras.url ?? "",
     method: extras.method ?? "GET",
     httpStatus: extras.httpStatus,
     finalUrl: extras.finalUrl,
     bodyExcerpt: extras.bodyExcerpt,
     latencyMs: extras.latencyMs,
-    metadata: extras.metadata,
+    metadata: annotated.metadata,
     protection: extras.protection,
   };
 }

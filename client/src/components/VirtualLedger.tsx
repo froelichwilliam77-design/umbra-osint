@@ -3,6 +3,15 @@ import { LEDGER_OVERSCAN, LEDGER_ROW_HEIGHT, ledgerWindow } from "@shared/scan-l
 import type { LedgerRow } from "@shared/types";
 import { Badge } from "@/components/ui/badge";
 
+function aiChip(row: LedgerRow): string | undefined {
+  const extra = row.metadata?.extra;
+  if (!extra) return undefined;
+  if (extra.aiKind === "public-share") return extra.readable ? "public share" : "share gated";
+  if (extra.aiKind === "account-signal") return "AI account";
+  if (row.category === "ai") return "public share / account signal";
+  return undefined;
+}
+
 export function VirtualLedger({
   items,
   selectedId,
@@ -78,6 +87,11 @@ export function VirtualLedger({
                   )}
                   {row.confidence === "high" && row.status === "found" && (
                     <span className="hidden shrink-0 font-mono text-[10px] text-signal-found sm:inline">high</span>
+                  )}
+                  {aiChip(row) && (
+                    <span className="hidden shrink-0 rounded border border-accent/40 px-1 font-mono text-[10px] text-accent sm:inline">
+                      {aiChip(row)}
+                    </span>
                   )}
                   <span className="font-mono text-[10px] text-fog-500">{row.category}</span>
                   {row.metadata?.displayName && (
