@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FAST_TIER_SIZE,
   LEAN_SITE_CAP,
+  POWER_RAM_MB,
   SSE_FLUSH_MS,
   createBatcher,
   inferDefaultProfile,
@@ -11,7 +12,17 @@ import {
   rssPressureOf,
 } from "../shared/scan-limits.ts";
 import { splitFastTier, type WmnSite } from "../server/schema.ts";
-import { bodyLimit, memoryHardMb, memorySoftMb } from "../server/limits.ts";
+import {
+  autoMemoryHardMb,
+  autoMemorySoftMb,
+  bodyLimit,
+  MEM_HARD_CAP_MB,
+  MEM_SOFT_CAP_MB,
+  memoryHardMb,
+  memorySoftMb,
+} from "../server/limits.ts";
+import { setDetectedRamMbForTests } from "../server/power.ts";
+import { memoryPressure, setRssReaderForTests } from "../server/memory.ts";
 
 const saved = { ...process.env };
 
@@ -20,6 +31,8 @@ afterEach(() => {
     if (!(key in saved)) delete process.env[key];
   }
   Object.assign(process.env, saved);
+  setDetectedRamMbForTests(1024);
+  setRssReaderForTests(null);
   vi.useRealTimers();
 });
 
@@ -40,6 +53,11 @@ describe("scan profile + SSE batching", () => {
   });
 
   it("exposes process vs cgroup RSS in the health snapshot", async () => {
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
+    setDetectedRamMbForTests(1024);
     const { memorySnapshot, setRssReaderForTests } = await import("../server/memory.ts");
     setRssReaderForTests(() => 200 * 1024 * 1024);
     const snap = memorySnapshot();
@@ -50,18 +68,67 @@ describe("scan profile + SSE batching", () => {
     setRssReaderForTests(null);
   });
 
-  it("uses 450/600 RSS watermarks and 48 KB bodies", () => {
+  it("uses 450/600 RSS watermarks and 48 KB bodies on 1 GB", () => {
     delete process.env.UMBRA_MEM_SOFT_MB;
     delete process.env.UMBRA_MEM_HARD_MB;
     delete process.env.UMBRA_RSS_SOFT_MB;
     delete process.env.UMBRA_RSS_HARD_MB;
     delete process.env.UMBRA_BODY_LIMIT;
+    setDetectedRamMbForTests(1024);
     expect(memorySoftMb()).toBe(450);
     expect(memoryHardMb()).toBe(600);
     expect(bodyLimit()).toBe(48_000);
     expect(rssPressureOf(449, 450, 600)).toBe("ok");
     expect(rssPressureOf(450, 450, 600)).toBe("soft");
     expect(rssPressureOf(600, 450, 600)).toBe("hard");
+  });
+
+  it("keeps lean 450/600 below the Power RAM threshold", () => {
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
+    setDetectedRamMbForTests(POWER_RAM_MB - 1);
+    expect(memorySoftMb()).toBe(450);
+    expect(memoryHardMb()).toBe(600);
+    expect(autoMemorySoftMb(1024)).toBe(450);
+    expect(autoMemoryHardMb(1799)).toBe(600);
+  });
+
+  it("scales soft/hard with detected RAM on ≥2 GB hosts", () => {
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
+    setDetectedRamMbForTests(7629);
+    expect(memorySoftMb()).toBe(Math.round(7629 * 0.7));
+    expect(memoryHardMb()).toBe(Math.round(7629 * 0.85));
+    expect(memorySoftMb()).toBeGreaterThan(5000);
+    expect(memoryHardMb()).toBeGreaterThan(memorySoftMb());
+    expect(memorySoftMb()).toBeLessThanOrEqual(MEM_SOFT_CAP_MB);
+    expect(memoryHardMb()).toBeLessThanOrEqual(MEM_HARD_CAP_MB);
+    setRssReaderForTests(() => 100 * 1024 * 1024);
+    expect(memoryPressure()).toBe("ok");
+  });
+
+  it("caps scaled watermarks and honors env overrides", () => {
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
+    expect(autoMemorySoftMb(20_000)).toBe(MEM_SOFT_CAP_MB);
+    expect(autoMemoryHardMb(20_000)).toBe(MEM_HARD_CAP_MB);
+    setDetectedRamMbForTests(7629);
+    process.env.UMBRA_MEM_SOFT_MB = "900";
+    process.env.UMBRA_MEM_HARD_MB = "1400";
+    expect(memorySoftMb()).toBe(900);
+    expect(memoryHardMb()).toBe(1400);
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    process.env.UMBRA_RSS_SOFT_MB = "800";
+    process.env.UMBRA_RSS_HARD_MB = "1200";
+    expect(memorySoftMb()).toBe(800);
+    expect(memoryHardMb()).toBe(1200);
   });
 
   it("reports a clear progress percent", () => {

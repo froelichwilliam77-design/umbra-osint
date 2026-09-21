@@ -9,6 +9,7 @@ import {
   playwrightRetryMax,
 } from "../server/limits.ts";
 import { setRssReaderForTests } from "../server/memory.ts";
+import { setDetectedRamMbForTests } from "../server/power.ts";
 import { playwrightEnabled, playwrightMax } from "../server/playwright-pool.ts";
 
 const saved = { ...process.env };
@@ -19,6 +20,7 @@ afterEach(() => {
   }
   Object.assign(process.env, saved);
   setRssReaderForTests(null);
+  setDetectedRamMbForTests(1024);
 });
 
 describe("Playwright default-off", () => {
@@ -119,7 +121,23 @@ describe("concurrency caps", () => {
     ]);
     expect(ran).toEqual([]);
     expect(pool.isAborted).toBe(true);
-    expect(pool.abortedReason).toMatch(/1 GB memory limit|memory/i);
+    expect(pool.abortedReason).toMatch(/memory limit|memory/i);
+  });
+
+  it("does not abort FULL/Power at idle RSS on an 8 GB host", async () => {
+    delete process.env.UMBRA_MEM_SOFT_MB;
+    delete process.env.UMBRA_MEM_HARD_MB;
+    delete process.env.UMBRA_RSS_SOFT_MB;
+    delete process.env.UMBRA_RSS_HARD_MB;
+    setDetectedRamMbForTests(7629);
+    setRssReaderForTests(() => 100 * 1024 * 1024);
+    const pool = new HostPool({ global: 2, perHost: 1 });
+    const ran: string[] = [];
+    await pool.schedule("h", async () => {
+      ran.push("ok");
+    });
+    expect(ran).toEqual(["ok"]);
+    expect(pool.isAborted).toBe(false);
   });
 });
 

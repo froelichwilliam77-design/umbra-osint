@@ -5,12 +5,13 @@ import {
   LEAN_CRAWL_PAGES,
   LEAN_SITE_CAP,
   POWER_CRAWL_PAGES,
+  POWER_RAM_MB,
   POWER_WORKERS,
   inferDefaultProfile,
   parseScanProfile,
   type ScanProfile,
 } from "../shared/scan-limits.ts";
-import { powerActive, powerEnvEnabled, ramAllowsPower, scanPowerActive } from "./power.ts";
+import { detectedRamMb, powerActive, powerEnvEnabled, ramAllowsPower, scanPowerActive } from "./power.ts";
 
 export type { ScanProfile };
 
@@ -47,6 +48,12 @@ export const DEFAULT_MAX_SCANS = 1;
 /** RSS watermarks (MiB). Railway hobby is 1024 MiB; abort before the cgroup OOM. */
 export const DEFAULT_MEM_SOFT_MB = 450;
 export const DEFAULT_MEM_HARD_MB = 600;
+/** Auto-scale on RAM ≥ POWER_RAM_MB (~1800). Caps keep an 8 GB box from waiting until the OOM. */
+export const MEM_SOFT_RAM_RATIO = 0.7;
+export const MEM_HARD_RAM_RATIO = 0.85;
+export const MEM_SOFT_CAP_MB = 5500;
+export const MEM_HARD_CAP_MB = 7000;
+export const MEM_ENV_MAX_MB = 8192;
 
 function envFlag(name: string): boolean {
   const v = process.env[name]?.trim().toLowerCase();
@@ -116,14 +123,36 @@ export function scanStaleMs(): number {
   return envInt("UMBRA_SCAN_STALE_MS", DEFAULT_SCAN_STALE_MS, 60_000, 60 * 60 * 1000);
 }
 
+function envOverrideMb(name: string, fallback: number, min: number, max: number): number | null {
+  if (!process.env[name]?.trim()) return null;
+  return envInt(name, fallback, min, max);
+}
+
+/** Lean 450/600 under ~1.8 GB; ~70%/85% of detected RAM above that, capped. */
+export function autoMemorySoftMb(ramMb: number): number {
+  if (!(ramMb >= POWER_RAM_MB)) return DEFAULT_MEM_SOFT_MB;
+  return Math.max(DEFAULT_MEM_SOFT_MB, Math.min(MEM_SOFT_CAP_MB, Math.round(ramMb * MEM_SOFT_RAM_RATIO)));
+}
+
+export function autoMemoryHardMb(ramMb: number): number {
+  if (!(ramMb >= POWER_RAM_MB)) return DEFAULT_MEM_HARD_MB;
+  return Math.max(DEFAULT_MEM_HARD_MB, Math.min(MEM_HARD_CAP_MB, Math.round(ramMb * MEM_HARD_RAM_RATIO)));
+}
+
 export function memorySoftMb(): number {
-  if (process.env.UMBRA_RSS_SOFT_MB?.trim()) return envInt("UMBRA_RSS_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, 8192);
-  return envInt("UMBRA_MEM_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, 8192);
+  return (
+    envOverrideMb("UMBRA_RSS_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, MEM_ENV_MAX_MB) ??
+    envOverrideMb("UMBRA_MEM_SOFT_MB", DEFAULT_MEM_SOFT_MB, 128, MEM_ENV_MAX_MB) ??
+    autoMemorySoftMb(detectedRamMb())
+  );
 }
 
 export function memoryHardMb(): number {
-  if (process.env.UMBRA_RSS_HARD_MB?.trim()) return envInt("UMBRA_RSS_HARD_MB", DEFAULT_MEM_HARD_MB, 192, 8192);
-  return envInt("UMBRA_MEM_HARD_MB", DEFAULT_MEM_HARD_MB, 192, 8192);
+  return (
+    envOverrideMb("UMBRA_RSS_HARD_MB", DEFAULT_MEM_HARD_MB, 192, MEM_ENV_MAX_MB) ??
+    envOverrideMb("UMBRA_MEM_HARD_MB", DEFAULT_MEM_HARD_MB, 192, MEM_ENV_MAX_MB) ??
+    autoMemoryHardMb(detectedRamMb())
+  );
 }
 
 export function undiciConnections(): number {

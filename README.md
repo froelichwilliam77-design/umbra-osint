@@ -94,7 +94,7 @@ Same pattern as before: one Docker process, built UI + `/api`, bind `0.0.0.0`, l
 
 - `UMBRA_PROFILE=lean` — ~250 curated + high-signal handle sites (chronically blocked modules skipped), proven mail oracles only (quarantined / chronically blocked skipped), crawl cap 25 pages. Toggle **Full** in the UI for the complete map.
 - `UMBRA_WORKERS=4`, `UMBRA_CURL_MAX=0` on 1 GB (TLS children stay off so the cgroup does not OOM). `UMBRA_BODY_LIMIT=48000`
-- RSS cancel at **450 / 600 MB** (`UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB`)
+- RSS cancel at **450 / 600 MB** on 1 GB hosts. On ≥~1800 MB RAM the watermarks scale to ~70% / ~85% of detected memory (capped at 5500 / 7000). Override with `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` (or `UMBRA_RSS_*`) only when you want to pin them.
 - `NODE_OPTIONS=--max-old-space-size=384`, Playwright off
 - SSE row events batched (~150 ms); the ledger virtualizes ~40 visible rows so a phone stays responsive
 
@@ -121,7 +121,7 @@ Keep the hobby plan lean. Umbra cannot buy a Railway upgrade for you — raise t
    - `UMBRA_PROFILE=full` (optional; Full in the UI on a ≥2 GB box also rides along with Power)
    - `UMBRA_CURL_MAX=1`
    - `UMBRA_WORKERS=8`
-   - `UMBRA_MEM_SOFT_MB=900` / `UMBRA_MEM_HARD_MB=1400` (scale watermarks with RAM)
+   - Leave `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` unset so watermarks follow detected RAM (or pin them if you want)
    - `NODE_OPTIONS=--max-old-space-size=768`
 3. **Do not** set `UMBRA_PLAYWRIGHT=1` unless you install Chromium yourself. Power never turns Playwright on.
 4. Crawl cap becomes 100 pages. Health payload `power.enabled` should be true.
@@ -276,7 +276,7 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `UMBRA_PLAYWRIGHT_MAX` | `1` | Max Playwright retries per handle scan (serial, one browser) |
 | `UMBRA_SCAN_STALE_MS` | `600000` (10m) | Auto-cancel a scan that makes no progress |
 | `UMBRA_MAX_SCANS` | `1` | Concurrent in-flight scans |
-| `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | `450` / `600` | Skip extra TLS/Playwright at soft; abort scan at hard (`UMBRA_RSS_*` aliases work too) |
+| `UMBRA_MEM_SOFT_MB` / `UMBRA_MEM_HARD_MB` | auto (`450`/`600` on 1 GB; ~70%/85% of RAM when ≥~1800 MB, cap 5500/7000) | Skip extra TLS/Playwright at soft; abort scan at hard. Unset to auto-scale. `UMBRA_RSS_*` aliases work too. |
 | `NODE_OPTIONS` | `--max-old-space-size=384` in Docker | V8 heap cap so RSS stays under the 1 GB cgroup |
 | `UMBRA_PHONE_REGION` | `US` | Default region when the query has no `+` country code |
 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | unset | Optional Twilio Lookup v2 (carrier / line type). Skip if unset. |
