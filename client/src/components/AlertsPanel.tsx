@@ -30,9 +30,9 @@ function ChannelRow({
           {configured ? "configured" : "not set"}
         </span>
       </div>
-      <p className="mt-1 break-all font-mono text-[10px] text-fog-500">{vars.join(" · ")}</p>
+      <p className="mt-1 break-words font-mono text-[10px] text-fog-500">{vars.join(" · ")}</p>
       {!configured && missing.length > 0 && (
-        <p className="mt-1 font-mono text-[10px] text-signal-blocked">needs {missing.join(" + ")}</p>
+        <p className="mt-1 break-words font-mono text-[10px] text-signal-blocked">needs {missing.join(" + ")}</p>
       )}
     </li>
   );
