@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { impersonateAvailable, impersonateHealth, shouldImpersonate, tlsMode } from "../server/curl-impersonate.ts";
+import { impersonateAvailable, impersonateHealth, isWafHeavy, shouldImpersonate, tlsMode } from "../server/curl-impersonate.ts";
 import { playwrightEnabled, shouldEscalateBrowser } from "../server/playwright-pool.ts";
 
 describe("TLS impersonation + Playwright flags", () => {
@@ -34,6 +34,7 @@ describe("TLS impersonation + Playwright flags", () => {
   it("does not auto-impersonate mail oracles unless the host is WAF-heavy", () => {
     const want = shouldImpersonate({ oracle: true, url: "https://github.com/signup_check/email" });
     expect(want).toBe(false);
+    expect(isWafHeavy({ url: "https://www.reddit.com/api/check_email.json" })).toBe(true);
   });
 
   it("impersonates Cloudflare-protected hosts when a binary exists", () => {

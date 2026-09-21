@@ -589,6 +589,18 @@ sites:
     m_code: 404
     m_string: "Page not found"
     cat: blog
+  - name: Reddit
+    uri_check: https://www.reddit.com/user/{account}/about.json
+    uri_pretty: https://www.reddit.com/user/{account}
+    e_code: 200
+    e_string: '"kind": "t2"'
+    m_code: 404
+    m_string: '"error": 404'
+    cat: social
+    known: ["spez", "koavf"]
+    username_regex: "^[A-Za-z0-9_-]{3,20}$"
+    headers:
+      Accept: application/json
 
 overrides:
   - name: Instagram

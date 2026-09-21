@@ -18,6 +18,7 @@ import {
   shouldEscalateBrowser,
 } from "./playwright-pool.ts";
 import { categoryOf, loadSchema, rankSites, sitesForScan, splitFastTier, type WmnSite } from "./schema.ts";
+import { isRedditHost, redditAlternateUrl, redditNeedsRetry } from "./reddit.ts";
 import { handleVariantProbeCount, handleVariants, variantHandleCap, variantSiteCap, variantsEnabled } from "./variants.ts";
 
 export function handleScanProbeCount(
@@ -165,6 +166,27 @@ export async function probeSite(
       },
       site.protection,
     );
+  }
+  // Reddit often 403s www from undici. Power impersonates first; lean retries old.reddit.com.
+  if (isRedditHost(url) && redditNeedsRetry(res)) {
+    const alt = redditAlternateUrl(url);
+    if (alt && alt !== url) {
+      const retry = await fetchProbe(
+        {
+          url: alt,
+          method,
+          headers,
+          body,
+          accept,
+        },
+        site.protection,
+      );
+      if (retry.status > 0 && !redditNeedsRetry(retry)) {
+        res = { ...retry, url, finalUrl: retry.finalUrl || alt };
+      } else if (retry.status > 0 && (res.status === 0 || (retry.status !== 403 && res.status === 403))) {
+        res = { ...retry, url, finalUrl: retry.finalUrl || alt };
+      }
+    }
   }
   // Follow one same-host profile redirect so dual-condition + metadata see the real page.
   if (

@@ -72,6 +72,7 @@ const handlers: Record<string, OracleFn> = {
     return wrapHttp(res, url, "GET");
   },
   reddit: async (email) => {
+    // Register availability only — Reddit does not email the subject from this endpoint.
     const url = "https://www.reddit.com/api/check_email.json";
     const res = await fetchOracle({
       url,
@@ -85,6 +86,19 @@ const handlers: Record<string, OracleFn> = {
     });
     const taken = matchTakenPhrases(res.body, ["EMAIL_TAKEN", "that email is already taken"]);
     if (taken) return pack(res, url, "POST", taken);
+    try {
+      const j = JSON.parse(res.body) as { errors?: unknown[] };
+      const errors = Array.isArray(j.errors) ? j.errors : [];
+      const blob = JSON.stringify(errors).toLowerCase();
+      if (blob.includes("email_taken") || blob.includes("already taken")) {
+        return pack(res, url, "POST", { status: "found", reason: "Reddit check_email.json EMAIL_TAKEN." });
+      }
+      if (res.status === 200 && errors.length === 0) {
+        return pack(res, url, "POST", { status: "miss", reason: "Reddit check_email.json accepted the email." });
+      }
+    } catch {
+      /* fall through */
+    }
     if (res.status === 200 && (res.body.trim() === "{}" || res.body.includes('"errors":[]'))) {
       return pack(res, url, "POST", { status: "miss", reason: "Reddit check_email.json accepted the email." });
     }
