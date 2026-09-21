@@ -97,7 +97,7 @@ export async function sendTestAlert(): Promise<AlertTestResult> {
       ok: false,
       delivered: {},
       configured,
-      message: alertSetup().note,
+      message: "Nothing to send — Telegram, Resend, SMTP, and webhook are all off. Set the Railway Variables listed above (never paste secrets here), then tap Test alert again.",
     };
   }
   const alert: WatchAlert = {
