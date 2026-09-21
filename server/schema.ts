@@ -81,7 +81,14 @@ export function loadSchema(): SchemaBundle {
   const curated = loadYaml<{
     sites?: WmnSite[];
     extractors?: ExtractorSpec[];
-    overrides?: { name: string; username_regex?: string; e_string?: string; m_string?: string }[];
+    overrides?: {
+    name: string;
+    username_regex?: string;
+    e_string?: string;
+    m_string?: string;
+    cat?: string;
+    valid?: boolean;
+  }[];
   }>("schema/sites.curated.yaml");
   const oraclesDoc = loadYaml<{ oracles: OracleSpec[] }>("schema/oracles.yaml");
   const disposable = new Set(
@@ -142,7 +149,7 @@ export function loadSchema(): SchemaBundle {
   }
 
   cache = {
-    sites: [...byName.values()],
+    sites: [...byName.values()].filter((s) => s.valid !== false),
     extractors: curated.extractors ?? [],
     oracles: oraclesDoc.oracles ?? [],
     disposable,
@@ -205,7 +212,10 @@ export function schemaStats(): SchemaStats {
 }
 
 const HIGH_SIGNAL =
-  /\b(github|gitlab|gitea|gitee|bitbucket|codeberg|sourcehut|sourceforge|launchpad|stackoverflow|stack overflow|hacker news|hackerone|bugcrowd|keybase|wikipedia|reddit|youtube|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|steam|spotify|soundcloud|bandcamp|last\.fm|npm|crates|pypi|rubygems|packagist|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|hashnode|dev\.to|behance|dribbble|artstation|deviantart|vimeo|npmjs|dockerhub|docker hub|lichess|chess\.com|duolingo|strava|goodreads|letterboxd|producthunt|product hunt|buymeacoffee|ko-fi|kofi|gumroad|figma|canva|notion|slack|atlassian|trello|jira|orcid|anilist|imdb|trakt|mixcloud|discogs|itch\.io|gog\.com|humble|observable|glitch|codesandbox|gitpod|sourcehut|sr\.ht|hackerone|kaggle|leetcode|codeforces|hackerrank|tryhackme|hackthebox|namemc|modrinth|curseforge|roblox|epicgames|playstation|nintendo|xbox|battlenet|riot|ubisoft)\b/i;
+  /\b(github|gitlab|gitea|gitee|bitbucket|codeberg|sourcehut|sourceforge|launchpad|stackoverflow|stack overflow|hacker news|hackerone|bugcrowd|keybase|wikipedia|reddit|youtube|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|steam|spotify|soundcloud|bandcamp|last\.fm|npm|crates|pypi|rubygems|packagist|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|hashnode|dev\.to|behance|dribbble|artstation|deviantart|vimeo|npmjs|dockerhub|docker hub|lichess|chess\.com|duolingo|strava|goodreads|letterboxd|producthunt|product hunt|buymeacoffee|ko-fi|kofi|gumroad|figma|canva|notion|slack|atlassian|trello|jira|orcid|anilist|imdb|trakt|mixcloud|discogs|itch\.io|gog\.com|humble|observable|glitch|codesandbox|gitpod|sourcehut|sr\.ht|hackerone|kaggle|leetcode|codeforces|hackerrank|tryhackme|hackthebox|namemc|modrinth|curseforge|roblox|epicgames|playstation|nintendo|xbox|battlenet|riot|ubisoft|wattpad|blogspot|blogger|livejournal|insanejournal|dreamwidth|archiveofourown|ao3|fanfiction|fictionpress|write\.as|writeas|ghost|gitbook|hubpages|carrd|issuu|scribd|academia|researchgate|slideshare|quotev|bearblog|svbtle|blot\.im|vocal\.media)\b/i;
+
+const WRITING_PLATFORM =
+  /\b(medium|substack|hashnode|dev\.to|wordpress|tumblr|blogspot|blogger|ghost|wattpad|archiveofourown|ao3|fanfiction|fictionpress|write\.as|writeas|gitbook|hubpages|carrd|issuu|scribd|academia|livejournal|insanejournal|dreamwidth|quotev|bearblog|svbtle|blot\.im|notion\.site|vocal\.media)\b/i;
 
 /** WAF/CAPTCHA-gated handle modules that rarely yield found on lean (no TLS children). */
 const CHRONIC_BLOCKED_HANDLES =
@@ -217,6 +227,12 @@ export function isClearnetSite(site: WmnSite): boolean {
 
 export function isHighSignalSite(site: WmnSite): boolean {
   return HIGH_SIGNAL.test(site.name) || HIGH_SIGNAL.test(site.uri_check || "");
+}
+
+export function isWritingSite(site: WmnSite): boolean {
+  const cat = (site.cat || "").toLowerCase();
+  if (cat === "blog") return true;
+  return WRITING_PLATFORM.test(site.name) || WRITING_PLATFORM.test(site.uri_check || "");
 }
 
 export function looksLikeApiCheck(site: WmnSite): boolean {
@@ -236,9 +252,11 @@ export function siteRank(site: WmnSite): number {
   const cat = (site.cat || "").toLowerCase();
   if (cat === "social") score += 40;
   else if (cat === "coding") score += 42;
+  else if (cat === "blog") score += 44;
   else if (cat === "tech") score += 32;
   else if (cat === "business") score += 16;
   else if (cat === "xx nsfw xx") score -= 80;
+  if (isWritingSite(site) && cat !== "blog") score += 28;
   if (isHighSignalSite(site)) score += 70;
   if (looksLikeApiCheck(site)) score += 22;
   if (site.e_string) score += 14;

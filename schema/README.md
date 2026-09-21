@@ -8,7 +8,7 @@ Umbra loads five schema layers:
 4. **`sites.curated.yaml`** — extra handle targets, extractors, and overrides (wins on name collision).
 5. **`oracles.yaml`** — silent email registration oracles (no SMTP, no password-reset mail). Chronically CSRF-dead modules are `quarantine:`'d. **Lean** skips quarantined and chronically blocked oracles and runs high-signal checks first. **Full** still ranks high-signal first; quarantined rows are emitted as blocked without a probe.
 
-Handle sites: unique union of WhatsMyName + Sherlock overlay + Maigret overlay + curated YAML (URL-key dedupe). Lean stays capped (~250). Full uses the complete unique map.
+Handle sites: unique union of WhatsMyName + Sherlock overlay + Maigret overlay + curated YAML (URL-key dedupe). Lean stays capped (~250). Full uses the complete unique map. Writing/blogging platforms are `cat: blog` so they rank into lean and filter in the ledger.
 
 ## Handle site (WhatsMyName-compatible)
 

@@ -111,6 +111,8 @@ export const HIGH_SIGNAL_ORACLES = new Set([
   "render",
   "netlify",
   "supabase",
+  "scribd",
+  "academia",
 ]);
 
 /**
