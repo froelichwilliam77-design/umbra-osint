@@ -1,7 +1,7 @@
 import type { ScanProfile } from "../shared/scan-limits.ts";
 import type { OracleSpec } from "./schema.ts";
 
-/** High-signal silent oracles — run first so likely hits surface early. */
+/** High-signal silent oracles — run first so likely hits surface early. Lean mail prefers this set. */
 export const HIGH_SIGNAL_ORACLES = new Set([
   "gravatar",
   "github",
@@ -48,6 +48,54 @@ export const HIGH_SIGNAL_ORACLES = new Set([
   "hubspot",
   "strava",
   "eventbrite",
+  "chess",
+  "duolingo",
+  "canva",
+  "figma",
+  "stripe",
+  "vercel",
+  "cloudflare",
+  "twitch",
+  "letterboxd",
+  "gumroad",
+  "kofi",
+  "heroku",
+  "digitalocean",
+  "mongodb",
+  "sentry",
+  "calendly",
+  "airtable",
+  "clickup",
+  "asana",
+  "monday",
+  "linear",
+  "lastpass",
+  "archive",
+  "vsco",
+  "wattpad",
+  "issuu",
+  "xing",
+  "codecademy",
+  "buymeacoffee",
+  "myfitnesspal",
+  "evernote",
+  "roblox",
+  "wix",
+  "convertkit",
+  "mailchimp",
+  "zoom",
+  "intercom",
+  "twilio",
+  "grafana",
+  "pagerduty",
+  "datadog",
+  "sendgrid",
+  "newrelic",
+  "square",
+  "plurk",
+  "venmo",
+  "devrant",
+  "teamtreehouse",
 ]);
 
 /**
@@ -98,10 +146,33 @@ export const LEAN_SKIP_ORACLES = new Set([
   "voxmedia",
   "garmin",
   "ebay",
+  "yandex",
+  "vk",
+  "rumble",
+  "netflix",
+  "binance",
+  "coinbase",
+  "wise",
+  "revolut",
+  "kraken",
+  "airbnb",
+  "booking",
+  "meetup",
+  "epicgames",
+  "godaddy",
+  "namecheap",
+  "dailymotion",
+  "zendesk",
+  "freshdesk",
+  "miro",
 ]);
 
+export function isProvenMailOracle(spec: OracleSpec): boolean {
+  return HIGH_SIGNAL_ORACLES.has(spec.id) || HIGH_SIGNAL_ORACLES.has(spec.handler);
+}
+
 export function oraclePriority(spec: OracleSpec): number {
-  if (HIGH_SIGNAL_ORACLES.has(spec.id) || HIGH_SIGNAL_ORACLES.has(spec.handler)) return 0;
+  if (isProvenMailOracle(spec)) return 0;
   if (spec.quarantine || LEAN_SKIP_ORACLES.has(spec.id)) return 2;
   return 1;
 }
@@ -117,6 +188,7 @@ export function selectMailOracles(
     if (profile === "lean") {
       if (spec.quarantine) return false;
       if (LEAN_SKIP_ORACLES.has(spec.id)) return false;
+      if (!isProvenMailOracle(spec)) return false;
     }
     return true;
   });

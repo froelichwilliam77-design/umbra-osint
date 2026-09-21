@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyHibp, parseHibpBreaches } from "../server/hibp.ts";
+import { emptyHibp, hibpPasteLinks, parseHibpBreaches } from "../server/hibp.ts";
 
 describe("HIBP dossier parser", () => {
   it("parses breach records from the v3 payload", () => {
@@ -27,5 +27,13 @@ describe("HIBP dossier parser", () => {
     expect(d.enabled).toBe(false);
     expect(d.breachCount).toBe(0);
     expect(d.skipped).toMatch(/HIBP_API_KEY/);
+  });
+
+  it("offers public paste / stealer pivot links without paid scraping", () => {
+    const links = hibpPasteLinks("press@github.com");
+    expect(links.some((l) => l.label === "HIBP account")).toBe(true);
+    expect(links.some((l) => /hudson/i.test(l.label))).toBe(true);
+    expect(links.some((l) => /paste/i.test(l.label))).toBe(true);
+    expect(links.every((l) => l.url.startsWith("https://"))).toBe(true);
   });
 });

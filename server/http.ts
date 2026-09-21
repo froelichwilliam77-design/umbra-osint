@@ -1,4 +1,5 @@
 import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+import { isTransientHttpStatus } from "../shared/scan-messages.ts";
 import { socksDispatcher } from "fetch-socks";
 import { bodyLimit, undiciConnections } from "./limits.ts";
 import { assertSafeFetchTarget, SsrfError } from "./ssrf.ts";
@@ -318,4 +319,20 @@ export function jitter(minMs = 40, maxMs = 220): Promise<void> {
   const span = Math.max(0, maxMs - minMs);
   const ms = minMs + Math.floor(Math.random() * (span + 1));
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isTransientHttp(res: HttpResponse): boolean {
+  if (res.ssrf) return false;
+  return isTransientHttpStatus(res.status, res.error);
+}
+
+/** One bounded retry on timeout / 502 / 503 / 504. Never retries SSRF or 4xx (except 408). */
+export async function fetchPublicRetry(req: HttpRequest, attempts = 2): Promise<HttpResponse> {
+  const max = Math.min(3, Math.max(1, attempts));
+  let last = await fetchPublic(req);
+  for (let i = 1; i < max && isTransientHttp(last); i++) {
+    await jitter(180 * i, 420 * i);
+    last = await fetchPublic(req);
+  }
+  return last;
 }

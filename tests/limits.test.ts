@@ -119,7 +119,7 @@ describe("concurrency caps", () => {
     ]);
     expect(ran).toEqual([]);
     expect(pool.isAborted).toBe(true);
-    expect(pool.abortedReason).toMatch(/memory/i);
+    expect(pool.abortedReason).toMatch(/1 GB memory limit|memory/i);
   });
 });
 

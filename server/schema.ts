@@ -184,10 +184,29 @@ export function schemaStats(): SchemaStats {
 }
 
 const HIGH_SIGNAL =
-  /\b(github|gitlab|bitbucket|codeberg|sourcehut|stackoverflow|stack overflow|hacker news|keybase|wikipedia|twitter|instagram|reddit|youtube|linkedin|facebook|tiktok|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|snapchat|steam|spotify|soundcloud|npm|crates|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|behance|dribbble|vimeo|vkontakte|pypi|rubygems|packagist)\b/i;
+  /\b(github|gitlab|gitea|gitee|bitbucket|codeberg|sourcehut|sourceforge|launchpad|stackoverflow|stack overflow|hacker news|hackerone|keybase|wikipedia|reddit|youtube|twitch|discord|telegram|mastodon|bluesky|medium|pinterest|steam|spotify|soundcloud|bandcamp|last\.fm|npm|crates|pypi|rubygems|packagist|huggingface|kaggle|replit|docker|gravatar|flickr|tumblr|wordpress|patreon|substack|hashnode|dev\.to|behance|dribbble|artstation|deviantart|vimeo|npmjs|dockerhub|docker hub|lichess|chess\.com|duolingo|strava|goodreads|letterboxd|producthunt|product hunt|buymeacoffee|ko-fi|kofi|gumroad|figma|canva|notion|slack|atlassian|trello|jira)\b/i;
+
+/** WAF/CAPTCHA-gated handle modules that rarely yield found on lean (no TLS children). */
+const CHRONIC_BLOCKED_HANDLES =
+  /\b(twitter|x\.com|instagram|facebook|tiktok|snapchat|threads|onlyfans|linkedin|vkontakte|vk\.com|ok\.ru|weibo|xiaohongshu)\b/i;
 
 export function isClearnetSite(site: WmnSite): boolean {
   return !/\.onion\b/i.test(site.uri_check || "");
+}
+
+export function isHighSignalSite(site: WmnSite): boolean {
+  return HIGH_SIGNAL.test(site.name) || HIGH_SIGNAL.test(site.uri_check || "");
+}
+
+export function looksLikeApiCheck(site: WmnSite): boolean {
+  return /\/api[\.\/]|api\.|about\.json|lookup\.json|users\?|format=json/i.test(site.uri_check || "");
+}
+
+export function isChronicBlockedHandle(site: WmnSite): boolean {
+  const blob = `${site.name} ${site.uri_check || ""}`;
+  if (CHRONIC_BLOCKED_HANDLES.test(blob)) return true;
+  if (site.protection?.length && !looksLikeApiCheck(site) && !isHighSignalSite(site)) return true;
+  return false;
 }
 
 export function siteRank(site: WmnSite): number {
@@ -195,13 +214,16 @@ export function siteRank(site: WmnSite): number {
   if (site.source === "curated") score += 100;
   const cat = (site.cat || "").toLowerCase();
   if (cat === "social") score += 40;
-  else if (cat === "coding") score += 38;
-  else if (cat === "tech") score += 30;
+  else if (cat === "coding") score += 42;
+  else if (cat === "tech") score += 32;
   else if (cat === "business") score += 16;
   else if (cat === "xx nsfw xx") score -= 80;
-  if (HIGH_SIGNAL.test(site.name) || HIGH_SIGNAL.test(site.uri_check || "")) score += 50;
-  if (!site.protection?.length) score += 8;
-  if (/\/api[\.\/]|api\./i.test(site.uri_check || "")) score += 12;
+  if (isHighSignalSite(site)) score += 70;
+  if (looksLikeApiCheck(site)) score += 22;
+  if (site.known?.length) score += 10;
+  if (!site.protection?.length) score += 16;
+  else score -= 28;
+  if (isChronicBlockedHandle(site)) score -= 55;
   return score;
 }
 
@@ -224,7 +246,7 @@ export function sitesForScan(
   const profile = opts?.profile ?? "full";
   if (profile !== "lean") return ranked;
   const cap = opts?.cap ?? leanSiteCap() ?? LEAN_SITE_CAP;
-  return ranked.slice(0, cap);
+  return ranked.filter((s) => !isChronicBlockedHandle(s) || looksLikeApiCheck(s)).slice(0, cap);
 }
 
 export function categoryOf(site: WmnSite): string {

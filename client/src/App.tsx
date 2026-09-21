@@ -26,9 +26,12 @@ import { BatchPanel } from "@/components/BatchPanel";
 import { AvatarClustersPanel } from "@/components/AvatarClustersPanel";
 import { ShareView, shareRouteFromLocation } from "@/components/ShareView";
 import { VirtualLedger } from "@/components/VirtualLedger";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { createBatcher, progressPercent, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
+import { POWER_1GB_CONFIRM, POWER_BANNER_1GB, explainScanAbort, explainScanStartError } from "@shared/scan-messages";
 import type {
   AlertChannelsPublic,
+  AlertSetupPublic,
   CrawlDossier,
   HostDossier,
   IdentityGraph,
@@ -120,6 +123,7 @@ export default function App() {
   const [watchPersist, setWatchPersist] = useState<"volume" | "memory">("memory");
   const [watchWebhook, setWatchWebhook] = useState(false);
   const [alertChannels, setAlertChannels] = useState<AlertChannelsPublic | null>(null);
+  const [alertSetup, setAlertSetup] = useState<AlertSetupPublic | null>(null);
   const [powerOn, setPowerOn] = useState(false);
   const [powerMeta, setPowerMeta] = useState<{
     enabled?: boolean;
@@ -127,8 +131,10 @@ export default function App() {
     ramMb?: number;
     ramAllowsPower?: boolean;
     note?: string;
+    banner?: string | null;
   } | null>(null);
   const [powerNote, setPowerNote] = useState<string | null>(null);
+  const [powerConfirm, setPowerConfirm] = useState(false);
   const [compare, setCompare] = useState<ScanCompare | null>(null);
   const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
@@ -137,6 +143,10 @@ export default function App() {
   const scanRef = useRef<ScanSummary | null>(null);
   const graphRef = useRef<IdentityGraph | null>(null);
   const pivotQueueRef = useRef<{ query: string; mode: ScanMode }[]>([]);
+  const wantStreamRef = useRef(false);
+  const streamScanIdRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectsRef = useRef(0);
 
   rowsRef.current = rows;
   scanRef.current = scan;
@@ -151,6 +161,7 @@ export default function App() {
               watches?: WatchRecord[];
               alerts?: WatchAlert[];
               channels?: AlertChannelsPublic;
+              setup?: AlertSetupPublic;
             })
           : null,
       )
@@ -160,6 +171,7 @@ export default function App() {
         setWatches(data.watches ?? []);
         setAlerts(data.alerts ?? []);
         if (data.channels) setAlertChannels(data.channels);
+        if (data.setup) setAlertSetup(data.setup);
       })
       .catch(() => undefined);
     void fetch("/api/health")
@@ -167,13 +179,16 @@ export default function App() {
         r.ok
           ? ((await r.json()) as {
               watches?: { webhook?: boolean; channels?: AlertChannelsPublic };
-              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; ramAllowsPower?: boolean; note?: string };
+              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; ramAllowsPower?: boolean; note?: string; banner?: string | null };
+              alerts?: AlertSetupPublic;
+              hibpNote?: string;
             })
           : null,
       )
       .then((h) => {
         if (h?.watches?.webhook != null) setWatchWebhook(h.watches.webhook);
         if (h?.watches?.channels) setAlertChannels(h.watches.channels);
+        if (h?.alerts) setAlertSetup(h.alerts);
         if (h?.power) {
           setPowerMeta(h.power);
           if (h.power.note) setPowerNote(h.power.note);
@@ -200,8 +215,9 @@ export default function App() {
         r.ok
           ? ((await r.json()) as {
               limits?: { profile?: ScanProfile; power?: boolean };
-              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; note?: string };
+              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; note?: string; banner?: string | null };
               watches?: { webhook?: boolean; channels?: AlertChannelsPublic };
+              alerts?: AlertSetupPublic;
             })
           : null,
       )
@@ -214,6 +230,7 @@ export default function App() {
         }
         if (h?.watches?.webhook != null) setWatchWebhook(h.watches.webhook);
         if (h?.watches?.channels) setAlertChannels(h.watches.channels);
+        if (h?.alerts) setAlertSetup(h.alerts);
       })
       .catch(() => undefined);
     void loadCases()
@@ -236,7 +253,9 @@ export default function App() {
 
   useEffect(
     () => () => {
+      wantStreamRef.current = false;
       sourceRef.current?.close();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       batcherRef.current?.flush();
     },
     [],
@@ -244,7 +263,12 @@ export default function App() {
 
   const applyRows = (batch: LedgerRow[]) => {
     if (!batch.length) return;
-    setRows((prev) => prev.concat(batch));
+    setRows((prev) => {
+      const seen = new Set(prev.map((r) => r.id));
+      const extra = batch.filter((r) => !seen.has(r.id));
+      if (!extra.length) return prev;
+      return prev.concat(extra);
+    });
     setSelected((cur) => cur ?? batch.find((r) => r.status === "found") ?? batch[0]);
   };
 
@@ -266,6 +290,109 @@ export default function App() {
     setCases((prev) => [saved, ...prev.filter((c) => c.id !== saved.id)].slice(0, 24));
   };
 
+  const stopStream = () => {
+    wantStreamRef.current = false;
+    streamScanIdRef.current = null;
+    sourceRef.current?.close();
+    sourceRef.current = null;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
+
+  const finishFromSummary = (summary: ScanSummary) => {
+    batcherRef.current?.flush();
+    setScan(summary);
+    setBusy(false);
+    if (summary.abortReason) setNotice(explainScanAbort(summary.abortReason));
+    void persistActive(summary).then(() => {
+      const next = pivotQueueRef.current.shift();
+      if (next) {
+        setNotice(`Auto-pivot: ${next.mode} ${next.query}`);
+        void start({ query: next.query, mode: next.mode, keepPivots: true });
+      }
+    });
+  };
+
+  const hydrateScan = async (id: string) => {
+    try {
+      const res = await fetch(`/api/scans/${id}`);
+      const data = (await res.json()) as { scan?: ScanSummary; rows?: LedgerRow[]; graph?: IdentityGraph; error?: string };
+      if (!res.ok || !data.scan) {
+        setBusy(false);
+        setError(data.error || explainScanStartError(res.status));
+        return;
+      }
+      if (data.rows?.length) {
+        setRows(data.rows);
+        rowsRef.current = data.rows;
+      }
+      if (data.graph) setGraph(data.graph);
+      if (data.scan.status === "running" && wantStreamRef.current && streamScanIdRef.current === id) {
+        setScan(data.scan);
+        return;
+      }
+      finishFromSummary(data.scan);
+    } catch (err) {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const attachStream = (id: string) => {
+    if (!wantStreamRef.current || streamScanIdRef.current !== id) return;
+    sourceRef.current?.close();
+    const es = new EventSource(`/api/scans/${id}/events`);
+    sourceRef.current = es;
+    es.onmessage = (ev) => {
+      if (streamScanIdRef.current !== id) return;
+      let event: ScanEvent;
+      try {
+        event = JSON.parse(ev.data) as ScanEvent;
+      } catch {
+        return;
+      }
+      reconnectsRef.current = 0;
+      if (event.type === "hello") setScan(event.scan);
+      if (event.type === "row") queueRows(event.row);
+      if (event.type === "rows") queueRows(event.rows);
+      if (event.type === "notice") setNotice(event.message);
+      if (event.type === "dossier") {
+        setScan((s) => (s ? { ...s, dossier: event.dossier } : s));
+      }
+      if (event.type === "progress") {
+        setScan((s) => (s ? { ...s, progress: event.progress } : s));
+      }
+      if (event.type === "graph") setGraph(event.graph);
+      if (event.type === "clusters") {
+        setScan((s) => (s ? { ...s, avatarClusters: event.clusters } : s));
+      }
+      if (event.type === "error") setError(event.message);
+      if (event.type === "done") {
+        wantStreamRef.current = false;
+        es.close();
+        finishFromSummary(event.scan);
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      batcherRef.current?.flush();
+      if (!wantStreamRef.current || streamScanIdRef.current !== id) {
+        setBusy(false);
+        return;
+      }
+      reconnectsRef.current += 1;
+      if (reconnectsRef.current > 8) {
+        void hydrateScan(id);
+        setNotice("Live stream dropped. Latest rows are below — Cancel still works.");
+        return;
+      }
+      const wait = Math.min(400 * reconnectsRef.current, 2500);
+      reconnectTimerRef.current = setTimeout(() => attachStream(id), wait);
+    };
+  };
+
   const start = async (override?: { query?: string; mode?: ScanMode; keepPivots?: boolean }) => {
     const q = (override?.query ?? query).trim();
     if (!q) return;
@@ -282,7 +409,7 @@ export default function App() {
     setGraph(null);
     setCompare(null);
     if (!override?.keepPivots) pivotQueueRef.current = [];
-    sourceRef.current?.close();
+    stopStream();
     try {
       const payload = {
         query: q,
@@ -297,7 +424,6 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      // One auto-retry on conflict / busy — cancel-replace should make this rare.
       if (res.status === 409 || res.status === 429) {
         res = await fetch("/api/scans", {
           method: "POST",
@@ -305,71 +431,46 @@ export default function App() {
           body: JSON.stringify({ ...payload, replace: true }),
         });
       }
-      const data = (await res.json()) as ScanSummary & { error?: string };
-      if (!res.ok) throw new Error(data.error || "Scan failed");
+      let data: ScanSummary & { error?: string };
+      try {
+        data = (await res.json()) as ScanSummary & { error?: string };
+      } catch {
+        setBusy(false);
+        setError(explainScanStartError(res.status));
+        return;
+      }
+      if (!res.ok) throw new Error(explainScanStartError(res.status, data.error));
       setScan(data);
       if (data.profileNote) setNotice(data.profileNote);
       if (!data.preflight.ok) {
         setBusy(false);
-        setError(data.preflight.errors.join(" "));
+        setError(data.preflight.errors.join(" ") || "Preflight rejected this query.");
         return;
       }
-      const es = new EventSource(`/api/scans/${data.id}/events`);
-      sourceRef.current = es;
-      es.onmessage = (ev) => {
-        const event = JSON.parse(ev.data) as ScanEvent;
-        if (event.type === "hello") setScan(event.scan);
-        if (event.type === "row") queueRows(event.row);
-        if (event.type === "rows") queueRows(event.rows);
-        if (event.type === "notice") setNotice(event.message);
-        if (event.type === "dossier" || event.type === "done") {
-          if (event.type === "done") batcherRef.current?.flush();
-          setScan(event.type === "done" ? event.scan : (s) => (s ? { ...s, dossier: event.dossier } : s));
-        }
-        if (event.type === "progress") {
-          setScan((s) => (s ? { ...s, progress: event.progress } : s));
-        }
-        if (event.type === "graph") setGraph(event.graph);
-        if (event.type === "clusters") {
-          setScan((s) => (s ? { ...s, avatarClusters: event.clusters } : s));
-        }
-        if (event.type === "error") setError(event.message);
-        if (event.type === "done") {
-          setBusy(false);
-          es.close();
-          void persistActive(event.scan).then(() => {
-            const next = pivotQueueRef.current.shift();
-            if (next) {
-              setNotice(`Auto-pivot: ${next.mode} ${next.query}`);
-              void start({ query: next.query, mode: next.mode, keepPivots: true });
-            }
-          });
-        }
-      };
-      es.onerror = () => {
-        batcherRef.current?.flush();
-        setBusy(false);
-        es.close();
-      };
+      wantStreamRef.current = true;
+      streamScanIdRef.current = data.id;
+      reconnectsRef.current = 0;
+      attachStream(data.id);
     } catch (err) {
       setBusy(false);
-      setError(err instanceof Error ? err.message : String(err));
+      const raw = err instanceof Error ? err.message : String(err);
+      setError(explainScanStartError(0, raw));
     }
   };
 
-
   const cancel = async () => {
     pivotQueueRef.current = [];
-    sourceRef.current?.close();
+    const id = streamScanIdRef.current ?? scanRef.current?.id ?? scan?.id;
+    stopStream();
     batcherRef.current?.flush();
     setBusy(false);
     setScan((s) => (s && s.status === "running" ? { ...s, status: "cancelled", abortReason: "cancelled by user" } : s));
-    const id = scanRef.current?.id ?? scan?.id;
+    setNotice("Scan cancelled.");
     if (!id) return;
     try {
       const res = await fetch(`/api/scans/${id}/cancel`, { method: "POST" });
       const data = (await res.json()) as { error?: string; scan?: ScanSummary };
-      if (!res.ok) throw new Error(data.error || "Cancel failed");
+      if (!res.ok) throw new Error(data.error || "Cancel could not reach the engine — the UI already stopped.");
       if (data.scan) setScan(data.scan);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -510,7 +611,21 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen px-3 py-4 md:px-6">
+    <div className={`min-h-screen px-3 py-4 md:px-6 ${mode === "mail" ? "mail-compact" : ""}`}>
+      {powerConfirm && (
+        <ConfirmDialog
+          title="Enable Power on 1 GB?"
+          body={POWER_1GB_CONFIRM}
+          confirmLabel="Enable Power"
+          danger
+          onCancel={() => setPowerConfirm(false)}
+          onConfirm={() => {
+            setPowerConfirm(false);
+            setPowerOn(true);
+            setProfile("full");
+          }}
+        />
+      )}
       <header className="sticky top-0 z-20 -mx-3 mb-4 border-b border-ink-700/80 bg-ink-950/90 px-3 py-3 backdrop-blur md:-mx-6 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -557,13 +672,20 @@ export default function App() {
             </Button>
           )}
           {scan && isCrawl(scan.dossier) && (
-            <Button size="sm" variant="outline" className="tap-lg" onClick={runPivots}>
+            <Button size="sm" variant="outline" className="tap-lg hidden sm:inline-flex" onClick={runPivots}>
               <Waypoints className="h-3.5 w-3.5" />
               Run pivots
             </Button>
           )}
         </div>
       </header>
+
+      {!powerOn && (powerMeta?.banner || (!powerMeta?.ramAllowsPower && powerMeta?.ramMb != null && powerMeta.ramMb < 1800)) && (
+        <div className="mb-3 rounded-xl border border-signal-blocked/40 bg-signal-blocked/10 px-3 py-2 text-sm text-fog-100">
+          {powerMeta?.banner || POWER_BANNER_1GB}
+          {powerMeta?.ramMb != null ? ` Detected ~${powerMeta.ramMb} MB.` : ""}
+        </div>
+      )}
 
       <section className="sticky top-[4.5rem] z-10 rounded-xl border border-ink-600 bg-ink-900/95 p-3 shadow-panel backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
@@ -589,7 +711,7 @@ export default function App() {
               {label}
             </button>
           ))}
-          <label className="ml-auto flex min-h-11 items-center gap-2 font-mono text-[11px] text-fog-500">
+          <label className="ml-auto hidden min-h-11 items-center gap-2 font-mono text-[11px] text-fog-500 sm:flex">
             <input
               type="checkbox"
               checked={includeNsfw}
@@ -627,10 +749,8 @@ export default function App() {
               }
               const leanBox = !powerMeta?.allowed && !powerMeta?.ramAllowsPower;
               if (leanBox) {
-                const ok = window.confirm(
-                  "Power enables TLS impersonation (curl children) and 8 workers. On a 1 GB Railway plan this can OOM the cgroup. Raise memory to ≥2 GB in Settings → Resources first. Continue anyway?",
-                );
-                if (!ok) return;
+                setPowerConfirm(true);
+                return;
               }
               setPowerOn(true);
               setProfile("full");
@@ -641,14 +761,14 @@ export default function App() {
           >
             Power
           </button>
-          <span className="font-mono text-[11px] text-fog-300">
+          <span className="hidden font-mono text-[11px] text-fog-300 sm:inline">
             {powerOn
               ? "Power: Full map allowed + curl-impersonate (UMBRA_CURL_MAX≥1). Playwright stays off unless UMBRA_PLAYWRIGHT=1."
               : profile === "lean"
                 ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
                 : "Full: all clearnet sites + remaining mail oracles. TLS children stay off on 1 GB unless Power is on."}
           </span>
-          {!powerOn && powerNote && <span className="font-mono text-[11px] text-fog-500">{powerNote}</span>}
+          {!powerOn && powerNote && <span className="hidden font-mono text-[11px] text-fog-500 md:inline">{powerNote}</span>}
         </div>
         <form
           className="mt-3 flex flex-col gap-2 sm:flex-row"
@@ -701,6 +821,28 @@ export default function App() {
         )}
         {error && <p className="mt-2 text-sm text-signal-error">{error}</p>}
         {notice && <p className="mt-2 text-sm text-fog-300">{notice}</p>}
+        {scan && (
+          <div className="mt-3 flex items-center gap-3">
+            <div className="h-2.5 flex-1 overflow-hidden rounded bg-ink-700">
+              <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="shrink-0 font-mono text-xs text-fog-100">
+              {pct}%{progress ? ` · ${progress.done}/${progress.total}` : ""}
+              {scan.status === "running" || busy ? " · live" : scan.status === "cancelled" ? " · cancelled" : ""}
+            </span>
+            {(busy || scan.status === "running") && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="tap-lg border-signal-blocked text-signal-blocked sm:hidden"
+                onClick={() => void cancel()}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        )}
       </section>
 
       {scan && (
@@ -718,9 +860,9 @@ export default function App() {
             <button
               key={s}
               onClick={() => setFilter(filter === s ? "all" : s)}
-              className={`rounded-lg border px-3 py-2 text-left ${
+              className={`rounded-lg border px-3 py-2 text-left tap-lg ${
                 filter === s ? "border-accent bg-ink-800" : "border-ink-600 bg-ink-900/70"
-              }`}
+              } ${s === "found" || s === "blocked" ? "" : "hidden sm:block"}`}
             >
               <div className="font-mono text-[10px] uppercase text-fog-500">{s}</div>
               <div className={`font-mono text-xl ${STATUS_COLOR[s]}`}>{progress?.[s] ?? 0}</div>
@@ -735,21 +877,6 @@ export default function App() {
             <div className="font-mono text-[10px] uppercase text-fog-500">all</div>
             <div className="font-mono text-xl text-fog-100">{progress?.done ?? 0}</div>
           </button>
-        </div>
-      )}
-
-      {scan && (
-        <div className="mt-2 flex items-center gap-3">
-          <div className="h-2.5 flex-1 overflow-hidden rounded bg-ink-700">
-            <div
-              className="h-full bg-accent transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <span className="shrink-0 font-mono text-xs text-fog-100">
-            {pct}%{progress ? ` · ${progress.done}/${progress.total}` : ""}
-            {scan.status === "running" ? " · live" : scan.status === "cancelled" ? " · cancelled" : ""}
-          </span>
         </div>
       )}
 
@@ -786,12 +913,14 @@ export default function App() {
       {scan && isCrawl(scan.dossier) && (
         <CrawlCards dossier={scan.dossier} onPivot={pivotTo} onRunPivots={runPivots} />
       )}
-      <AvatarClustersPanel clusters={scan?.avatarClusters} />
-      <GraphPanel
-        graph={graph}
-        onPivot={pivotTo}
-        onRunPivots={scan && (isMail(scan.dossier) || isCrawl(scan.dossier)) ? runPivots : undefined}
-      />
+      <div className={scan && isMail(scan.dossier) ? "hidden md:block" : undefined}>
+        <AvatarClustersPanel clusters={scan?.avatarClusters} />
+        <GraphPanel
+          graph={graph}
+          onPivot={pivotTo}
+          onRunPivots={scan && (isMail(scan.dossier) || isCrawl(scan.dossier)) ? runPivots : undefined}
+        />
+      </div>
       <ComparePanel compare={compare} onClose={() => setCompare(null)} />
       <CasesPanel
         cases={cases}
@@ -799,7 +928,7 @@ export default function App() {
         onChange={setCases}
         onOpen={(rec) => {
           const opened = openSavedCase(rec);
-          sourceRef.current?.close();
+          stopStream();
           setBusy(false);
           setScan(opened.scan);
           setRows(opened.rows);
@@ -817,6 +946,7 @@ export default function App() {
         persist={watchPersist}
         webhook={watchWebhook}
         channels={alertChannels ?? undefined}
+        setup={alertSetup}
         defaultQuery={scan?.query}
         defaultMode={scan?.mode}
         onRefresh={refreshWatches}
@@ -897,7 +1027,7 @@ export default function App() {
               <h2 className="text-sm text-fog-300">Inspector</h2>
               <button
                 onClick={() => setInspectorOpen(false)}
-                className="rounded-md border border-ink-600 p-1 text-fog-300"
+                className="tap-lg rounded-md border border-ink-600 p-2 text-fog-300"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
@@ -1086,7 +1216,7 @@ function MailCards({
           </Button>
         </div>
       </Card>
-      <Card icon={<Globe className="h-4 w-4" />} title="MX / auth">
+      <Card icon={<Globe className="h-4 w-4" />} title="MX / auth" className="mail-extra">
         {dossier.mx.length === 0 && <p className="text-sm text-fog-500">No MX records</p>}
         {dossier.mx.slice(0, 3).map((m) => (
           <p key={m.exchange} className="font-mono text-xs">
@@ -1106,7 +1236,7 @@ function MailCards({
           BIMI {dossier.bimi?.present ? "present" : "absent"}
         </p>
       </Card>
-      <Card icon={<Fingerprint className="h-4 w-4" />} title="Gravatar">
+      <Card icon={<Fingerprint className="h-4 w-4" />} title="Gravatar" className="mail-extra">
         {dossier.gravatar?.exists ? (
           <div className="flex gap-3">
             {dossier.gravatar.avatarUrl && (
@@ -1135,7 +1265,8 @@ function MailCards({
           <div>
             <p className="text-sm text-fog-100">Not queried</p>
             <p className="mt-1 text-xs text-fog-300">
-              {dossier.hibp?.skipped ?? "Set HIBP_API_KEY to look up breaches. Umbra never emails the subject."}
+              {dossier.hibp?.skipped ??
+                "Set HIBP_API_KEY in Railway Variables for live breach names and dates. Umbra never emails the subject."}
             </p>
           </div>
         ) : dossier.hibp.skipped ? (
@@ -1143,11 +1274,15 @@ function MailCards({
         ) : dossier.hibp.breachCount ? (
           <div>
             <p className="text-sm text-signal-found">{dossier.hibp.breachCount} breach record(s)</p>
-            <ul className="mt-2 max-h-28 space-y-1 overflow-auto font-mono text-[11px] text-fog-300">
-              {dossier.hibp.breaches.slice(0, 12).map((b) => (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-fog-300">
+              {dossier.hibp.breaches.slice(0, 16).map((b) => (
                 <li key={b.name}>
-                  {b.title || b.name}
+                  <span className="text-fog-100">{b.title || b.name}</span>
                   {b.breachDate ? ` · ${b.breachDate}` : ""}
+                  {b.pwnCount != null ? ` · ${b.pwnCount.toLocaleString()} accounts` : ""}
+                  {b.dataClasses?.length ? (
+                    <span className="block font-mono text-[10px] text-fog-500">{b.dataClasses.slice(0, 6).join(", ")}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -1155,8 +1290,26 @@ function MailCards({
         ) : (
           <p className="text-sm text-fog-100">No breaches reported for this address.</p>
         )}
+        {(dossier.hibp?.pasteLinks?.length || dossier.openLinks?.length) ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(dossier.hibp?.pasteLinks?.length ? dossier.hibp.pasteLinks : dossier.openLinks.filter((l) => /hibp|hudson|paste|leak|intelx|gist/i.test(l.label)))
+              .slice(0, 8)
+              .map((l) => (
+                <a
+                  key={l.label}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tap-lg inline-flex items-center gap-1 rounded border border-ink-600 px-2 py-1 font-mono text-[10px] uppercase text-fog-300 hover:border-accent hover:text-fog-100"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {l.label}
+                </a>
+              ))}
+          </div>
+        ) : null}
       </Card>
-      <Card icon={<UserRound className="h-4 w-4" />} title="Pivots">
+      <Card icon={<UserRound className="h-4 w-4" />} title="Pivots" className="mail-extra">
         {pivots.length === 0 && <p className="text-sm text-fog-500">No handle pivots</p>}
         <ul className="max-h-36 space-y-1 overflow-auto font-mono text-xs text-fog-300">
           {pivots.map((p) => (
@@ -1414,13 +1567,15 @@ function Card({
   icon,
   title,
   children,
+  className,
 }: {
   icon: ReactNode;
   title: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-ink-600 bg-ink-900/70 p-3">
+    <div className={`rounded-xl border border-ink-600 bg-ink-900/70 p-3 ${className ?? ""}`}>
       <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-fog-500">
         {icon}
         {title}

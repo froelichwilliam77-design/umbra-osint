@@ -31,7 +31,7 @@ import {
   startWatchScheduler,
   watchesPersistMode,
 } from "./watches.ts";
-import { alertChannels } from "./alerts.ts";
+import { alertChannels, alertSetup, sendTestAlert } from "./alerts.ts";
 import {
   cancelBatch,
   createBatch,
@@ -332,6 +332,7 @@ app.get("/api/watches", async () => ({
   watches: listWatches(),
   alerts: listAlerts(),
   channels: alertChannels(),
+  setup: alertSetup(),
 }));
 
 app.post("/api/watches", async (req, reply) => {
@@ -374,7 +375,11 @@ app.post("/api/watches/:id/run", async (req, reply) => {
   return rec;
 });
 
-app.get("/api/alerts", async () => ({ alerts: listAlerts() }));
+app.get("/api/alerts", async () => ({ alerts: listAlerts(), setup: alertSetup() }));
+
+app.get("/api/alerts/setup", async () => alertSetup());
+
+app.post("/api/alerts/test", async () => sendTestAlert());
 
 app.post("/api/alerts/:id/read", async (req, reply) => {
   const { id } = req.params as { id: string };

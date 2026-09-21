@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { POWER_RAM_MB, type ScanProfile } from "../shared/scan-limits.ts";
+import { POWER_BANNER_1GB } from "../shared/scan-messages.ts";
 
 const LIMIT_FILES = ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"];
 
@@ -90,5 +91,6 @@ export function powerPublic() {
     note: enabled
       ? "Power: more workers + curl-impersonate (UMBRA_CURL_MAX≥1). Playwright still off unless UMBRA_PLAYWRIGHT=1."
       : "Lean 1 GB defaults. Upgrade Railway memory to ≥2 GB (cgroup ~1800 MB+) and set UMBRA_POWER=1, or tap Power in the UI (warns on 1 GB).",
+    banner: ramOn ? null : POWER_BANNER_1GB,
   };
 }

@@ -5,6 +5,7 @@ import {
   endScanPower,
   powerActive,
   powerEnvEnabled,
+  powerPublic,
   ramAllowsPower,
   resetScanPowerForTests,
   setDetectedRamMbForTests,
@@ -86,5 +87,14 @@ describe("power profile", () => {
     delete process.env.UMBRA_PLAYWRIGHT;
     const { playwrightEnabled } = await import("../server/playwright-pool.ts");
     expect(playwrightEnabled()).toBe(false);
+  });
+
+  it("exposes a 1 GB Power banner when RAM is below threshold", () => {
+    delete process.env.UMBRA_POWER;
+    setDetectedRamMbForTests(1024);
+    const pub = powerPublic();
+    expect(pub.ramAllowsPower).toBe(false);
+    expect(pub.banner).toMatch(/Settings → Resources/);
+    expect(pub.banner).toMatch(/2 GB/);
   });
 });

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { FolderOpen, Trash2, Download, Upload, GitCompare, Link2, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyDialog } from "@/components/ConfirmDialog";
 import type { CaseShare, IdentityGraph, LedgerRow, SavedCase, ScanCompare, ScanSummary } from "@shared/types";
 import {
   compareLocalCases,
@@ -29,6 +30,9 @@ export function CasesPanel({
   const [shares, setShares] = useState<CaseShare[]>([]);
   const [shareHours, setShareHours] = useState("");
   const [shareBusy, setShareBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [panelError, setPanelError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const byId = useMemo(() => new Map(cases.map((c) => [c.id, c])), [cases]);
   const persistLabel = persist === "volume" ? "server volume · all devices" : "this browser (IndexedDB)";
@@ -53,14 +57,14 @@ export function CasesPanel({
       if (!res.ok) throw new Error(data.error || "Share failed");
       const url = `${window.location.origin}${data.path ?? `/share/${data.token}`}`;
       await navigator.clipboard.writeText(url).catch(() => undefined);
-      window.prompt("Read-only share URL (copied when clipboard allows)", url);
+      setShareUrl(url);
       const listed = await fetch(`/api/cases/${encodeURIComponent(rec.id)}/shares`);
       if (listed.ok) {
         const body = (await listed.json()) as { shares?: CaseShare[] };
         setShares(body.shares ?? []);
       }
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      setPanelError(err instanceof Error ? err.message : String(err));
     } finally {
       setShareBusy(null);
     }
@@ -74,11 +78,21 @@ export function CasesPanel({
 
   return (
     <section className="mt-4 rounded-xl border border-ink-600 bg-ink-900/70 p-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      {shareUrl && <CopyDialog title="Read-only share URL" value={shareUrl} onClose={() => setShareUrl(null)} />}
+      <button
+        type="button"
+        className="mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
         <div className="text-xs uppercase tracking-wide text-fog-300">
           Cases · {cases.length}
           <span className="ml-2 font-mono text-[10px] normal-case tracking-normal text-fog-500">{persistLabel}</span>
         </div>
+        <span className="font-mono text-[10px] text-fog-500">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" className="tap-lg" onClick={() => fileRef.current?.click()}>
             <Upload className="h-3.5 w-3.5" />
@@ -98,7 +112,7 @@ export function CasesPanel({
                 <option value="720">share 30d</option>
               </select>
               <select
-                className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100"
+                className="tap-lg hidden rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100 sm:block"
                 value={left}
                 onChange={(e) => setLeft(e.target.value)}
               >
@@ -110,7 +124,7 @@ export function CasesPanel({
                 ))}
               </select>
               <select
-                className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100"
+                className="tap-lg hidden rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100 sm:block"
                 value={right}
                 onChange={(e) => setRight(e.target.value)}
               >
@@ -124,7 +138,7 @@ export function CasesPanel({
               <Button
                 size="sm"
                 variant="outline"
-                className="tap-lg"
+                className="tap-lg hidden sm:inline-flex"
                 disabled={!left || !right || left === right}
                 onClick={() => {
                   const a = byId.get(left);
@@ -139,6 +153,7 @@ export function CasesPanel({
           )}
         </div>
       </div>
+      {panelError && <p className="mb-2 text-sm text-signal-error">{panelError}</p>}
       {cases.length === 0 ? (
         <p className="mt-2 text-sm text-fog-300">
           Finished scans auto-save here. With a Railway volume at <code>/data</code> they survive restarts and sync
@@ -168,11 +183,11 @@ export function CasesPanel({
                 <Download className="h-3.5 w-3.5" />
                 Report
               </Button>
-              <Button size="sm" variant="outline" className="tap-lg" onClick={() => exportCaseHybrid(c, "md", persist)}>
+              <Button size="sm" variant="outline" className="tap-lg hidden sm:inline-flex" onClick={() => exportCaseHybrid(c, "md", persist)}>
                 <Download className="h-3.5 w-3.5" />
                 MD
               </Button>
-              <Button size="sm" variant="outline" className="tap-lg" onClick={() => exportCaseHybrid(c, "json", persist)}>
+              <Button size="sm" variant="outline" className="tap-lg hidden sm:inline-flex" onClick={() => exportCaseHybrid(c, "json", persist)}>
                 <Download className="h-3.5 w-3.5" />
                 JSON
               </Button>
@@ -243,10 +258,12 @@ export function CasesPanel({
           try {
             await onImport(file);
           } catch (err) {
-            window.alert(err instanceof Error ? err.message : String(err));
+            setPanelError(err instanceof Error ? err.message : String(err));
           }
         }}
       />
+        </>
+      )}
     </section>
   );
 }

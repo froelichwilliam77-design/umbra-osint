@@ -81,7 +81,7 @@ export function BatchPanel({
             onChange={(e) => setText(e.target.value)}
             rows={5}
             placeholder={`octocat\npress@github.com\ngithub.com\n+14155552671\n# comments and blanks are skipped (max ${BATCH_MAX_LINES})`}
-            className="mt-3 w-full rounded-md border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-xs text-fog-100"
+            className="mt-3 min-h-32 w-full rounded-md border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-xs text-fog-100"
           />
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" className="tap-lg" onClick={() => void start()} disabled={!text.trim()}>

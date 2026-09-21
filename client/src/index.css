@@ -24,15 +24,22 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 640px) {
   .tap-lg {
-    min-height: 44px;
+    min-height: 48px;
+    min-width: 44px;
   }
 }
 
 @media (max-width: 640px) {
   .ledger-row {
     font-size: 0.95rem;
+  }
+  .phone-hide {
+    display: none;
+  }
+  .mail-compact .mail-extra {
+    display: none;
   }
 }
 
