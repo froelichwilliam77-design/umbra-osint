@@ -74,8 +74,12 @@ describe("watch lists", () => {
     const first = ingestWatchScan(rec, [row("GitHub")]);
     expect(first.alert).toBeNull();
     expect(first.rec.lastFound.map((f) => f.site)).toEqual(["GitHub"]);
+    expect(first.rec.timeline?.[0]?.site).toBe("GitHub");
+    const t0 = first.rec.timeline?.[0]?.firstSeenAt;
     const second = ingestWatchScan(first.rec, [row("GitHub"), row("GitLab")]);
     expect(second.alert?.newFounds.map((f) => f.site)).toEqual(["GitLab"]);
+    expect(second.rec.timeline?.map((e) => e.site).sort()).toEqual(["GitHub", "GitLab"]);
+    expect(second.rec.timeline?.find((e) => e.site === "GitHub")?.firstSeenAt).toBe(t0);
   });
 
   it("persists watches next to the cases volume and rejects crawl seeds", () => {

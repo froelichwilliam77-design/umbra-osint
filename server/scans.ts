@@ -32,6 +32,7 @@ import { HostPool } from "./concurrency.ts";
 import { clampPerHost, clampWorkers, maxConcurrentScans, resolveScanProfile, scanStaleMs } from "./limits.ts";
 import { ScanAbortError, isHardMemoryPressure } from "./memory.ts";
 import { loadSchema, sitesForScan } from "./schema.ts";
+import { beginScanPower, endScanPower, powerActive } from "./power.ts";
 
 interface StoredScan {
   summary: ScanSummary;
@@ -160,7 +161,9 @@ export async function startScan(input: {
   replace?: boolean;
   profile?: ScanProfile;
   persist?: boolean;
-  source?: "user" | "watch";
+  source?: "user" | "watch" | "batch";
+  /** UI Power: TLS + 8 workers for this scan. Warns on 1 GB. */
+  power?: boolean;
 }): Promise<ScanSummary> {
   const replace = input.replace !== false;
   if (replace && runningScanCount() >= maxConcurrentScans()) {
@@ -171,9 +174,11 @@ export async function startScan(input: {
   const normalized = normalizeQuery(input.query, kind);
   const schema = loadSchema();
   const includeNsfw = Boolean(input.includeNsfw);
+  const profile = resolveScanProfile(input.profile);
+  const wantPower = Boolean(input.power) || powerActive(profile);
+  if (input.power) beginScanPower();
   const workers = clampWorkers(input.workers);
   const perHost = clampPerHost(input.perHost);
-  const profile = resolveScanProfile(input.profile);
 
   let preflight = preflightHandle(normalized, schema.disposable);
   if (kind === "mail") {
@@ -227,17 +232,19 @@ export async function startScan(input: {
     profile,
     profileNote,
     source: input.source ?? "user",
+    power: wantPower,
   };
   const stored: StoredScan = { summary, rows: [], listeners: new Set(), pool: null, lastProgressAt: Date.now(), doneEmitted: false };
   scans.set(id, stored);
 
   if (!preflight.ok) {
     summary.finishedAt = new Date().toISOString();
+    if (input.power) endScanPower();
     return summary;
   }
 
   queueMicrotask(() => {
-    void execute(stored, workers, perHost, profile, input.persist !== false);
+    void execute(stored, workers, perHost, profile, input.persist !== false, Boolean(input.power));
   });
   return summary;
 }
@@ -248,6 +255,7 @@ async function execute(
   perHost: number,
   profile: ScanProfile,
   persist: boolean,
+  releasePower: boolean,
 ): Promise<void> {
   let pending: LedgerRow[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -499,20 +507,25 @@ async function execute(
     }
     emit(stored, { type: "error", message: err instanceof Error ? err.message : String(err) });
   } finally {
-    flushProgress();
-    stored.pool = null;
-    if (stored.doneEmitted) return;
-    if (stored.summary.status === "running") stored.summary.status = "done";
-    if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
-    stored.doneEmitted = true;
-    if (stored.summary.status === "done" && persist && stored.summary.source !== "watch") {
-      try {
-        persistCompletedScan(stored.summary, stored.rows, stored.summary.graph);
-      } catch {
-        /* optional persistence */
+    try {
+      flushProgress();
+      stored.pool = null;
+      if (!stored.doneEmitted) {
+        if (stored.summary.status === "running") stored.summary.status = "done";
+        if (!stored.summary.finishedAt) stored.summary.finishedAt = new Date().toISOString();
+        stored.doneEmitted = true;
+        if (stored.summary.status === "done" && persist && stored.summary.source !== "watch") {
+          try {
+            persistCompletedScan(stored.summary, stored.rows, stored.summary.graph);
+          } catch {
+            /* optional persistence */
+          }
+        }
+        emit(stored, { type: "done", scan: stored.summary });
       }
+    } finally {
+      if (releasePower) endScanPower();
     }
-    emit(stored, { type: "done", scan: stored.summary });
   }
 }
 

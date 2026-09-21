@@ -10,7 +10,17 @@ Host mode pulls RDAP, DNS, SPF/DMARC/DKIM/BIMI, parsed `security.txt`, HTTPS hea
 
 Phone mode E.164-normalizes with libphonenumber, adds country/region/type/timezone hints (NANP NPA labels where known), public lookup pivots (Google, Truecaller, Whitepages, wa.me, …), and optional Twilio/Numverify carrier lookups behind env keys. It never sends SMS.
 
-Finished scans auto-save as **cases** (dossier + found rows + graph). With a disk volume (`UMBRA_CASES_DIR` or `/data/cases`) they survive restarts and sync across devices; otherwise the UI falls back to IndexedDB/localStorage. Reopen a case, export an executive **HTML** report (print-to-PDF), Markdown, or JSON, or compare two cases side by side. **Watches** re-run a lean scan on an interval (min 1h, default 24h), diff new founds, and show an in-app Alerts panel — optional `UMBRA_ALERT_WEBHOOK` POSTs, no email. After mail or crawl, **Run pivots** queues follow-up scans (one at a time — 1 GB safe).
+Finished scans auto-save as **cases** (dossier + found rows + graph). With a disk volume (`UMBRA_CASES_DIR` or `/data/cases`) they survive restarts and sync across devices; otherwise the UI falls back to IndexedDB/localStorage. Reopen a case, export an executive **HTML** report (print-to-PDF), Markdown, or JSON, or compare two cases side by side. **Watches** re-run a lean scan on an interval (min 1h, default 24h), diff new founds, and show an in-app Alerts panel plus a first-seen **timeline**. Optional outbound channels (operator inbox only — never the subject, never SMS):
+
+- `UMBRA_ALERT_WEBHOOK` JSON POST
+- Email via **SMTP** (`UMBRA_SMTP_*` + `UMBRA_ALERT_EMAIL`) **or** **Resend** (`RESEND_API_KEY` / `UMBRA_RESEND_API_KEY` + `UMBRA_ALERT_EMAIL`)
+- **Telegram** (`UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID`)
+
+Finished cases can mint **read-only share links** (`/share/:token` or `/c/:id?token=`) — dossier + found rows + graph, no private keys, optional expiry, revoke in the UI.
+
+**Batch recon** pastes a multiline list of emails/handles/hosts/phones and queues **lean** scans serially (`maxConcurrentScans=1`). Skip invalid lines, cancel the queue, combined JSON/CSV/Markdown export when it finishes.
+
+After mail or crawl, **Run pivots** queues follow-up scans (one at a time — 1 GB safe).
 
 Paste an `https://` URL or **Crawl** a host for a bounded same-origin spider (25 pages lean / 100 power) that harvests emails, usernames, links, and headers into the ledger. SSRF still blocks private/loopback/metadata.
 
@@ -59,9 +69,12 @@ Live console screenshots:
 3. `press@github.com` (or another address you are authorized to check) in Mail — dossier + silent oracles (high-signal first). **Likely hits** appear while the scan continues. **Run pivots** walks handle `press` then host `github.com`. HIBP is a first-class dossier card when `HIBP_API_KEY` is set; otherwise it stays off.
 4. `github.com` in Host — RDAP / DNS / cert SAN / security.txt / TLS.
 5. `+14155552671` (or another number you are authorized to check) in Auto/Phone — E.164, region/type/timezone, public pivots. No SMS.
-6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases.
+6. **Cases** — finished scans auto-save. Open / delete / export HTML (print → PDF), Markdown, or JSON. **Side by side** compares two saved cases. **Share** mints a read-only public-OSINT link.
 7. **Crawl** — `https://example.com` (or the Crawl chip / `crawl this host example.com`) walks same-origin pages, then optional pivots.
-8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts.
+8. **Watch** — watch the current handle/mail/host/phone. New founds appear under Alerts and on a first-seen timeline. Configure webhook / SMTP or Resend / Telegram for operator alerts.
+9. **Share** — from Cases, mint a read-only `/share/:token` link (optional expiry). Recipients see dossier + founds + graph without signing in. Revoke anytime.
+10. **Batch** — paste a list of identifiers. Lean scans run one at a time; export the combined queue when it finishes.
+11. **Power** — on ≥~1800 MB RAM, `UMBRA_POWER=1`, or the UI **Power** chip (warns on 1 GB). Allows Full + TLS impersonation. Playwright stays off.
 
 ## Railway (public HTTPS)
 
@@ -90,12 +103,12 @@ Docker Compose already mounts named volume `umbra-data` at `/data`.
 
 ### Power mode (optional, not 1 GB)
 
-Keep the hobby plan lean. To allow TLS impersonation and more workers:
+Keep the hobby plan lean. Umbra cannot buy a Railway upgrade for you — raise the service plan, then opt in.
 
-1. Railway service → **Settings → Resources** → raise memory to **≥ 2 GB**.
-2. Set env:
+1. Railway service → **Settings → Resources** → raise memory to **≥ 2 GB** (cgroup at or above ~1800 MB counts as Power).
+2. Set env (or tap **Power** in the UI; on 1 GB the UI warns that TLS children can OOM):
    - `UMBRA_POWER=1`
-   - `UMBRA_PROFILE=full` (optional; Full in the UI on a ≥2 GB box also engages power)
+   - `UMBRA_PROFILE=full` (optional; Full in the UI on a ≥2 GB box also rides along with Power)
    - `UMBRA_CURL_MAX=1`
    - `UMBRA_WORKERS=8`
    - `UMBRA_MEM_SOFT_MB=900` / `UMBRA_MEM_HARD_MB=1400` (scale watermarks with RAM)
@@ -103,14 +116,16 @@ Keep the hobby plan lean. To allow TLS impersonation and more workers:
 3. **Do not** set `UMBRA_PLAYWRIGHT=1` unless you install Chromium yourself. Power never turns Playwright on.
 4. Crawl cap becomes 100 pages. Health payload `power.enabled` should be true.
 
-The UI **Full** chip on a 1 GB box still runs the full site map but **does not** spawn curl-impersonate children unless `UMBRA_POWER=1` or RAM ≥ 2 GB.
+`UMBRA_PROFILE=full` **alone** does not enable TLS children on a 1 GB cgroup.
+
+The UI **Full** chip on a 1 GB box still runs the full site map but **does not** spawn curl-impersonate children unless Power is on (`UMBRA_POWER=1`, cgroup RAM ≥ ~1800 MB, or the **Power** chip — which warns before enabling on 1 GB).
 
 1. New project on [Railway](https://railway.app) → **Deploy from GitHub** → `froelichwilliam77-design/umbra-osint`.
 2. `railway.toml` already selects the Dockerfile and health-checks `/api/health`.
 3. Generate a domain. Open the HTTPS URL on phone or desktop. Add to Home Screen (PWA).
 4. After a deploy, if a phone PWA shows a **blank black screen**, reload once — `sw.js` is network-first for HTML (`umbra-shell-v2`) so stale `index.html` cannot point at missing hashed JS.
 
-No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`, Twilio/Numverify keys. **Do not set `UMBRA_PLAYWRIGHT=1` on 1 GB.** Only enable Playwright on ≥2 GB, with `UMBRA_PLAYWRIGHT_MAX=1` (one Chromium, serial, killed after each GET).
+No extra env vars required. Optional: `UMBRA_PROXY`, `HIBP_API_KEY`, `UMBRA_TLS`, Twilio/Numverify keys, watch alert channels (webhook / SMTP or Resend / Telegram). **Do not set `UMBRA_PLAYWRIGHT=1` on 1 GB.** Only enable Playwright on ≥2 GB, with `UMBRA_PLAYWRIGHT_MAX=1` (one Chromium, serial, killed after each GET).
 
 ```bash
 PORT=43180 HOST=0.0.0.0 npm start
@@ -198,7 +213,7 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 
 ## API
 
-- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile? }` (`mode`: `auto` \| `handle` \| `mail` \| `host` \| `phone` \| `crawl`; `profile`: `lean` \| `full`)
+- `POST /api/scans` `{ query, mode?, includeNsfw?, workers?, perHost?, replace?, profile?, power? }` (`mode`: `auto` \| `handle` \| `mail` \| `host` \| `phone` \| `crawl`; `profile`: `lean` \| `full`; `power`: TLS + 8 workers for this scan)
 - `GET /api/scans` in-memory summaries (for compare)
 - `GET /api/scans/:id` snapshot + graph
 - `GET /api/scans/:id/events` SSE ledger (batched; found rows flush immediately)
@@ -211,12 +226,14 @@ NSFW (`xx NSFW xx`) is excluded unless you enable **include NSFW registry**.
 - `GET /api/cases/compare?a=&b=`
 - `GET /api/watches` · `POST /api/watches` `{ query, mode?, intervalHours? }` · `DELETE /api/watches/:id` · `POST /api/watches/:id/run`
 - `GET /api/alerts` · `POST /api/alerts/:id/read`
+- `POST /api/cases/:id/share` `{ expiresInHours? }` · `GET /api/cases/:id/shares` · `GET /api/share/:token` · `GET /api/c/:id?token=` · `POST /api/shares/:token/revoke`
+- `POST /api/batch` `{ text }` lean serial queue · `GET /api/batch/:id` · `POST /api/batch/:id/cancel` · `GET /api/batch/:id/export?format=json|csv|md`
 - `GET /api/schema` registry stats (`oraclesLean`)
-- `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / power flags
+- `GET /api/health` TLS / Playwright / HIBP / cases persist / watches / alert channels / shares / power flags
 
 ## Tests
 
-Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, SSRF blocks, persistent cases + executive HTML, watch diffs, power-mode caps, and bounded crawl harvest/SSRF.
+Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 403/429/451/CAPTCHA classification, redirect/soft-404/JSON recovery, Sherlock conversion, phone E.164, pHash clustering, identity-graph pivots, scan compare, TLS/Playwright flags, email dossier + Holehe-style oracle matchers, extractors, schema/oracle integrity, SSRF blocks, persistent cases + executive HTML, watch diffs + first-seen timeline, alert channels (webhook / Resend / Telegram), read-only share tokens, batch queue parse/cancel/export, power-mode caps (~1800 MB / UI Power), and bounded crawl harvest/SSRF.
 
 ## Environment
 
@@ -228,10 +245,14 @@ Vitest covers dual-condition matching (case-insensitive / whitespace-tolerant), 
 | `HIBP_API_KEY` | unset | Have I Been Pwned v3 key. When set, breaches land in the mail dossier + ledger. When unset, HIBP is omitted (not a miss). |
 | `UMBRA_CASES_DIR` | `/data/cases` if `/data` is writable, else unset | JSON volume for cases. Without it, the UI uses IndexedDB/localStorage. |
 | `UMBRA_WATCHES_DIR` | `<cases>/_watches` or `/data/watches` | Watch + alert JSON. Same volume as cases. |
-| `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts. No email is sent unless you wire the webhook. |
+| `UMBRA_ALERT_WEBHOOK` | unset | Optional POST URL for new-found watch alerts (operator webhook). |
+| `UMBRA_ALERT_EMAIL` | unset | Operator inbox for watch alerts. Never the investigation subject. |
+| `UMBRA_SMTP_HOST` / `UMBRA_SMTP_PORT` / `UMBRA_SMTP_USER` / `UMBRA_SMTP_PASS` / `UMBRA_SMTP_FROM` | unset | SMTP alert mail (587 STARTTLS, 465 implicit TLS). Used when Resend is not set. |
+| `RESEND_API_KEY` or `UMBRA_RESEND_API_KEY` | unset | Resend HTTPS email. Preferred over SMTP when both are set. Needs `UMBRA_ALERT_EMAIL`. |
+| `UMBRA_TELEGRAM_BOT_TOKEN` + `UMBRA_TELEGRAM_CHAT_ID` | unset | Telegram bot alert (operator chat). No SMS. |
 | `UMBRA_WATCH_MIN_MS` | `3600000` (1h) | Minimum watch interval (tests may lower this). Default interval is 24h. |
-| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first). Also a power opt-in. |
-| `UMBRA_POWER` | unset | `1` enables power: 8 workers, `UMBRA_CURL_MAX` at least 1, 100-page crawl. Requires ≥2 GB in production. Playwright stays off. |
+| `UMBRA_PROFILE` | `lean` on Railway / Docker; `full` locally | Handle map: `lean` ≈ 200 curated + high-signal sites; `full` is the complete clearnet map (fast tier first). Does **not** by itself enable TLS on 1 GB. |
+| `UMBRA_POWER` | unset | `1` enables power: 8 workers, `UMBRA_CURL_MAX` at least 1, 100-page crawl. Also on when cgroup RAM ≥ ~1800 MB or the UI Power chip is used. Playwright stays off. |
 | `UMBRA_CRAWL_PAGES` | `25` lean / `100` power | Max pages for a same-origin crawl. |
 | `UMBRA_LEAN_SITES` | `200` | Cap for lean handle scans |
 | `UMBRA_FAST_TIER` | `150` | High-signal sites probed first on a full handle scan |

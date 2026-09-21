@@ -22,9 +22,13 @@ import { Input } from "@/components/ui/input";
 import { ComparePanel, GraphPanel } from "@/components/GraphPanel";
 import { CasesPanel, openSavedCase } from "@/components/CasesPanel";
 import { AlertsPanel } from "@/components/AlertsPanel";
+import { BatchPanel } from "@/components/BatchPanel";
+import { AvatarClustersPanel } from "@/components/AvatarClustersPanel";
+import { ShareView, shareRouteFromLocation } from "@/components/ShareView";
 import { VirtualLedger } from "@/components/VirtualLedger";
 import { createBatcher, progressPercent, SSE_FLUSH_MS, type ScanProfile } from "@shared/scan-limits";
 import type {
+  AlertChannelsPublic,
   CrawlDossier,
   HostDossier,
   IdentityGraph,
@@ -115,6 +119,15 @@ export default function App() {
   const [alerts, setAlerts] = useState<WatchAlert[]>([]);
   const [watchPersist, setWatchPersist] = useState<"volume" | "memory">("memory");
   const [watchWebhook, setWatchWebhook] = useState(false);
+  const [alertChannels, setAlertChannels] = useState<AlertChannelsPublic | null>(null);
+  const [powerOn, setPowerOn] = useState(false);
+  const [powerMeta, setPowerMeta] = useState<{
+    enabled?: boolean;
+    allowed?: boolean;
+    ramMb?: number;
+    ramAllowsPower?: boolean;
+    note?: string;
+  } | null>(null);
   const [powerNote, setPowerNote] = useState<string | null>(null);
   const [compare, setCompare] = useState<ScanCompare | null>(null);
   const [installEvent, setInstallEvent] = useState<{ prompt: () => Promise<unknown> } | null>(null);
@@ -137,6 +150,7 @@ export default function App() {
               persist?: "volume" | "memory";
               watches?: WatchRecord[];
               alerts?: WatchAlert[];
+              channels?: AlertChannelsPublic;
             })
           : null,
       )
@@ -145,12 +159,26 @@ export default function App() {
         if (data.persist) setWatchPersist(data.persist);
         setWatches(data.watches ?? []);
         setAlerts(data.alerts ?? []);
+        if (data.channels) setAlertChannels(data.channels);
       })
       .catch(() => undefined);
     void fetch("/api/health")
-      .then(async (r) => (r.ok ? ((await r.json()) as { watches?: { webhook?: boolean } }) : null))
+      .then(async (r) =>
+        r.ok
+          ? ((await r.json()) as {
+              watches?: { webhook?: boolean; channels?: AlertChannelsPublic };
+              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; ramAllowsPower?: boolean; note?: string };
+            })
+          : null,
+      )
       .then((h) => {
         if (h?.watches?.webhook != null) setWatchWebhook(h.watches.webhook);
+        if (h?.watches?.channels) setAlertChannels(h.watches.channels);
+        if (h?.power) {
+          setPowerMeta(h.power);
+          if (h.power.note) setPowerNote(h.power.note);
+          if (h.power.enabled) setPowerOn(true);
+        }
       })
       .catch(() => undefined);
   };
@@ -172,13 +200,20 @@ export default function App() {
         r.ok
           ? ((await r.json()) as {
               limits?: { profile?: ScanProfile; power?: boolean };
-              power?: { enabled?: boolean; allowed?: boolean; note?: string };
+              power?: { enabled?: boolean; allowed?: boolean; ramMb?: number; note?: string };
+              watches?: { webhook?: boolean; channels?: AlertChannelsPublic };
             })
           : null,
       )
       .then((h) => {
         if (h?.limits?.profile === "full" || h?.limits?.profile === "lean") setProfile(h.limits.profile);
         if (h?.power?.note) setPowerNote(h.power.note);
+        if (h?.power) {
+          setPowerMeta(h.power);
+          if (h.power.enabled) setPowerOn(true);
+        }
+        if (h?.watches?.webhook != null) setWatchWebhook(h.watches.webhook);
+        if (h?.watches?.channels) setAlertChannels(h.watches.channels);
       })
       .catch(() => undefined);
     void loadCases()
@@ -255,6 +290,7 @@ export default function App() {
         includeNsfw,
         replace: true,
         profile,
+        power: powerOn,
       };
       let res = await fetch("/api/scans", {
         method: "POST",
@@ -440,6 +476,11 @@ export default function App() {
     setInspectorOpen(true);
   };
 
+  const shareRoute = shareRouteFromLocation();
+  if (shareRoute) {
+    return <ShareView token={shareRoute.token} caseId={shareRoute.caseId} />;
+  }
+
   if (!accepted) {
     return (
       <div
@@ -577,10 +618,35 @@ export default function App() {
               {label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              if (powerOn) {
+                setPowerOn(false);
+                return;
+              }
+              const leanBox = !powerMeta?.allowed && !powerMeta?.ramAllowsPower;
+              if (leanBox) {
+                const ok = window.confirm(
+                  "Power enables TLS impersonation (curl children) and 8 workers. On a 1 GB Railway plan this can OOM the cgroup. Raise memory to ≥2 GB in Settings → Resources first. Continue anyway?",
+                );
+                if (!ok) return;
+              }
+              setPowerOn(true);
+              setProfile("full");
+            }}
+            className={`tap-lg rounded-full border px-4 py-2 font-mono text-xs uppercase tracking-wide ${
+              powerOn ? "border-signal-blocked bg-signal-blocked/15 text-fog-100" : "border-ink-600 text-fog-500 hover:border-fog-500"
+            }`}
+          >
+            Power
+          </button>
           <span className="font-mono text-[11px] text-fog-300">
-            {profile === "lean"
-              ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
-              : "Full: all clearnet sites + remaining mail oracles. Power (more workers + TLS) when UMBRA_POWER=1 or RAM ≥2 GB."}
+            {powerOn
+              ? "Power: Full map allowed + curl-impersonate (UMBRA_CURL_MAX≥1). Playwright stays off unless UMBRA_PLAYWRIGHT=1."
+              : profile === "lean"
+                ? `Lean: ~${schema?.leanSites ?? 200} handle sites · crawl 25 pages · high-signal mail first (fits 1 GB Railway).`
+                : "Full: all clearnet sites + remaining mail oracles. TLS children stay off on 1 GB unless Power is on."}
           </span>
           {powerNote && <span className="font-mono text-[11px] text-fog-500">{powerNote}</span>}
         </div>
@@ -720,6 +786,7 @@ export default function App() {
       {scan && isCrawl(scan.dossier) && (
         <CrawlCards dossier={scan.dossier} onPivot={pivotTo} onRunPivots={runPivots} />
       )}
+      <AvatarClustersPanel clusters={scan?.avatarClusters} />
       <GraphPanel
         graph={graph}
         onPivot={pivotTo}
@@ -743,11 +810,13 @@ export default function App() {
         }}
         onCompare={setCompare}
       />
+      <BatchPanel />
       <AlertsPanel
         watches={watches}
         alerts={alerts}
         persist={watchPersist}
         webhook={watchWebhook}
+        channels={alertChannels ?? undefined}
         defaultQuery={scan?.query}
         defaultMode={scan?.mode}
         onRefresh={refreshWatches}

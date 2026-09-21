@@ -17,10 +17,12 @@ export function GraphPanel({
   graph,
   onPivot,
   onRunPivots,
+  interactive = true,
 }: {
   graph: IdentityGraph | null;
   onPivot: (query: string, mode: ScanMode) => void;
   onRunPivots?: () => void;
+  interactive?: boolean;
 }) {
   if (!graph || !graph.nodes?.length) return null;
   const nodes = graph.nodes ?? [];
@@ -51,8 +53,8 @@ export function GraphPanel({
             className={`tap-lg rounded-lg border px-3 py-2 text-left ${KIND_TONE[n.kind] ?? "border-ink-600"} ${
               n.pivot ? "" : "opacity-80"
             }`}
-            onClick={() => n.pivot && onPivot(n.pivot.query, n.pivot.mode)}
-            disabled={!n.pivot}
+            onClick={() => interactive && n.pivot && onPivot(n.pivot.query, n.pivot.mode)}
+            disabled={!interactive || !n.pivot}
           >
             <div className="font-mono text-[10px] uppercase text-fog-300">
               {n.kind}

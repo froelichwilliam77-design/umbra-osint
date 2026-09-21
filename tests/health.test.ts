@@ -50,4 +50,10 @@ describe("health + service worker", () => {
     expect(src).toMatch(/isNavigate/);
     expect(src).toMatch(/pathname\.startsWith\("\/assets\/"\)/);
   });
+
+  it("does not declare a Docker VOLUME (Railway Metal rejects it)", () => {
+    const docker = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+    expect(docker).not.toMatch(/^\s*VOLUME\b/m);
+    expect(docker).toMatch(/Do NOT add a Dockerfile VOLUME/);
+  });
 });

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { FolderOpen, Trash2, Download, Upload, GitCompare } from "lucide-react";
+import { FolderOpen, Trash2, Download, Upload, GitCompare, Link2, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { IdentityGraph, LedgerRow, SavedCase, ScanCompare, ScanSummary } from "@shared/types";
+import type { CaseShare, IdentityGraph, LedgerRow, SavedCase, ScanCompare, ScanSummary } from "@shared/types";
 import {
   compareLocalCases,
   deleteCaseHybrid,
@@ -26,9 +26,45 @@ export function CasesPanel({
 }) {
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
+  const [shares, setShares] = useState<CaseShare[]>([]);
+  const [shareHours, setShareHours] = useState("");
+  const [shareBusy, setShareBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const byId = useMemo(() => new Map(cases.map((c) => [c.id, c])), [cases]);
   const persistLabel = persist === "volume" ? "server volume · all devices" : "this browser (IndexedDB)";
+
+  const copyShare = async (rec: SavedCase) => {
+    setShareBusy(rec.id);
+    try {
+      if (persist !== "volume") {
+        await fetch("/api/cases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ case: rec }),
+        });
+      }
+      const hours = shareHours.trim() ? Number(shareHours) : undefined;
+      const res = await fetch(`/api/cases/${encodeURIComponent(rec.id)}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresInHours: Number.isFinite(hours) && hours! > 0 ? hours : null }),
+      });
+      const data = (await res.json()) as CaseShare & { path?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Share failed");
+      const url = `${window.location.origin}${data.path ?? `/share/${data.token}`}`;
+      await navigator.clipboard.writeText(url).catch(() => undefined);
+      window.prompt("Read-only share URL (copied when clipboard allows)", url);
+      const listed = await fetch(`/api/cases/${encodeURIComponent(rec.id)}/shares`);
+      if (listed.ok) {
+        const body = (await listed.json()) as { shares?: CaseShare[] };
+        setShares(body.shares ?? []);
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShareBusy(null);
+    }
+  };
 
   const onImport = async (file: File) => {
     const rec = parseImportedCase(JSON.parse(await file.text()));
@@ -50,6 +86,17 @@ export function CasesPanel({
           </Button>
           {cases.length > 0 && (
             <>
+              <select
+                className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100"
+                value={shareHours}
+                onChange={(e) => setShareHours(e.target.value)}
+                aria-label="Share expiry"
+              >
+                <option value="">share never expires</option>
+                <option value="24">share 24h</option>
+                <option value="168">share 7d</option>
+                <option value="720">share 30d</option>
+              </select>
               <select
                 className="tap-lg rounded-md border border-ink-600 bg-ink-900 px-2 font-mono text-[11px] text-fog-100"
                 value={left}
@@ -133,6 +180,16 @@ export function CasesPanel({
                 size="sm"
                 variant="outline"
                 className="tap-lg"
+                disabled={shareBusy === c.id}
+                onClick={() => void copyShare(c)}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Share
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="tap-lg"
                 onClick={async () => {
                   await deleteCaseHybrid(c.id, persist);
                   onChange(cases.filter((x) => x.id !== c.id));
@@ -144,6 +201,35 @@ export function CasesPanel({
             </li>
           ))}
         </ul>
+      )}
+      {shares.filter((s) => !s.revokedAt).length > 0 && (
+        <div className="mt-3 rounded-lg border border-ink-700 bg-ink-950 p-2">
+          <div className="text-[10px] uppercase tracking-wide text-fog-500">Live share links</div>
+          <ul className="mt-1 space-y-1">
+            {shares
+              .filter((s) => !s.revokedAt)
+              .map((s) => (
+                <li key={s.token} className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-fog-300">
+                  <a className="text-accent hover:underline" href={`/share/${s.token}`}>
+                    /share/{s.token.slice(0, 10)}…
+                  </a>
+                  {s.expiresAt ? <span>exp {new Date(s.expiresAt).toLocaleDateString()}</span> : <span>no expiry</span>}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="tap-lg"
+                    onClick={async () => {
+                      await fetch(`/api/shares/${s.token}/revoke`, { method: "POST" });
+                      setShares((prev) => prev.map((x) => (x.token === s.token ? { ...x, revokedAt: new Date().toISOString() } : x)));
+                    }}
+                  >
+                    <Ban className="h-3 w-3" />
+                    Revoke
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        </div>
       )}
       <input
         ref={fileRef}

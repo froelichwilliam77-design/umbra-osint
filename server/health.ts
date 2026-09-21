@@ -5,7 +5,9 @@ import { scanLimitsPublic } from "./limits.ts";
 import { memorySnapshot } from "./memory.ts";
 import { casesPersistMode } from "./cases.ts";
 import { powerPublic } from "./power.ts";
-import { alertWebhookUrl, watchesPersistMode } from "./watches.ts";
+import { alertChannels, alertWebhookUrl } from "./alerts.ts";
+import { sharesPersistMode } from "./shares.ts";
+import { watchesPersistMode } from "./watches.ts";
 import {
   playwrightAvailable,
   playwrightConcurrent,
@@ -23,7 +25,12 @@ export async function healthPayload() {
     proxy: Boolean(process.env.UMBRA_PROXY),
     hibp: Boolean(process.env.HIBP_API_KEY?.trim()),
     cases: { persist: casesPersistMode() },
-    watches: { persist: watchesPersistMode(), webhook: Boolean(alertWebhookUrl()) },
+    shares: { persist: sharesPersistMode() },
+    watches: {
+      persist: watchesPersistMode(),
+      webhook: Boolean(alertWebhookUrl()),
+      channels: alertChannels(),
+    },
     power: powerPublic(),
     playwright: {
       enabled: playwrightEnabled(),
