@@ -230,6 +230,9 @@ export function recoverOracleVerdict(res: HttpResponse): OracleVerdict | null {
   if (res.status === 401 || (res.status === 403 && SESSION_HINTS.some((h) => lower.includes(h)))) {
     return { status: "blocked", reason: `Auth wall (HTTP ${res.status}) — not a miss.` };
   }
+  if (res.status === 403) {
+    return { status: "blocked", reason: "HTTP 403 — treated as blocked, not a miss." };
+  }
 
   const redirected = redirectHint(res);
   if (redirected) return redirected;

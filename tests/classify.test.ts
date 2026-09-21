@@ -43,15 +43,25 @@ describe("dualCondition", () => {
 });
 
 describe("classifyResponse", () => {
-  it("never treats 403 as a miss", () => {
+  it("treats 403 + missing-profile body as miss, not a WAF block", () => {
     const r = classifyResponse(spec, {
       status: 403,
       body: "Not Found",
       headers: {},
       requestedUrl: "https://example.com/octocat",
     });
+    expect(r.status).toBe("miss");
+    expect(r.waf).toBe(false);
+  });
+
+  it("still blocks 403 challenge / WAF interstitials", () => {
+    const r = classifyResponse(spec, {
+      status: 403,
+      body: "Just a moment... checking your browser",
+      headers: { "cf-mitigated": "challenge", "cf-ray": "abc" },
+      requestedUrl: "https://example.com/octocat",
+    });
     expect(r.status).toBe("blocked");
-    expect(r.waf).toBe(true);
   });
 
   it("never treats 429 as a miss", () => {
@@ -332,5 +342,32 @@ describe("soft-404 / case-insensitive / regex / redirect-as-evidence", () => {
     );
     expect(r.status).toBe("found");
     expect(r.reason.toLowerCase()).toMatch(/profile/);
+  });
+
+  it("does not count empty e_string 200 as found without account evidence", () => {
+    const r = classifyResponse(
+      { e_code: 200, e_string: "", m_code: 404, m_string: "" },
+      {
+        status: 200,
+        body: "<html><title>Welcome</title><body>homepage</body></html>",
+        headers: {},
+        requestedUrl: "https://example.com/octocat",
+        account: "octocat",
+      },
+    );
+    expect(r.status).toBe("escalate");
+    expect(r.confidence).toBe("low");
+  });
+
+  it("attaches confidence tiers", () => {
+    const found = classifyResponse(spec, {
+      status: 200,
+      body: '{"login":"octocat"}',
+      headers: {},
+      requestedUrl: "https://api.github.com/users/octocat",
+      account: "octocat",
+    });
+    expect(found.status).toBe("found");
+    expect(found.confidence).toBe("high");
   });
 });

@@ -2,7 +2,7 @@ import type { HibpBreach, HibpDossier } from "../shared/types.ts";
 import { fetchPublicRetry } from "./http.ts";
 
 const SKIPPED =
-  "Have I Been Pwned skipped — set HIBP_API_KEY (Railway Variables) for live breach names and dates. Umbra never emails the subject.";
+  "Have I Been Pwned is off until you set HIBP_API_KEY in Railway → Variables. Umbra cannot invent a key. Public paste/stealer links still work. Umbra never emails the subject.";
 
 export function hibpEnabled(): boolean {
   return Boolean(process.env.HIBP_API_KEY?.trim());

@@ -96,6 +96,10 @@ app.post("/api/scans", async (req, reply) => {
     replace?: boolean;
     profile?: "lean" | "full";
     power?: boolean;
+    autoPivots?: boolean;
+    variants?: boolean;
+    pivotDepth?: number;
+    source?: "user" | "watch" | "batch" | "auto-pivot";
   };
   const replace = body.replace !== false; // default true — interactive UI replaces wedged scans
   const gate = canStartScan({ replace });
@@ -112,6 +116,10 @@ app.post("/api/scans", async (req, reply) => {
     replace,
     profile: body.profile,
     power: body.power,
+    autoPivots: body.autoPivots,
+    variants: body.variants,
+    pivotDepth: body.pivotDepth,
+    source: body.source,
   });
   return scan;
 });

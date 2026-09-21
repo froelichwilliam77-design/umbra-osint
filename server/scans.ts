@@ -20,7 +20,9 @@ import {
   preflightPhone,
   resolveMode,
 } from "./detect.ts";
-import { runHandleScan } from "./handle.ts";
+import { autoPivotsEnabled, planAutoPivots } from "./auto-pivots.ts";
+import { handleScanProbeCount, runHandleScan } from "./handle.ts";
+import { variantsEnabled } from "./variants.ts";
 import { buildMailDossier, hasMailExchanger, mailScanSiteCount, runMailScan } from "./mail.ts";
 import { persistCompletedScan } from "./cases.ts";
 import { crawlLedgerBudget, runCrawlScan } from "./crawl.ts";
@@ -162,9 +164,12 @@ export async function startScan(input: {
   replace?: boolean;
   profile?: ScanProfile;
   persist?: boolean;
-  source?: "user" | "watch" | "batch";
+  source?: "user" | "watch" | "batch" | "auto-pivot";
   /** UI Power: TLS + 8 workers for this scan. Warns on 1 GB. */
   power?: boolean;
+  autoPivots?: boolean;
+  variants?: boolean;
+  pivotDepth?: number;
 }): Promise<ScanSummary> {
   const replace = input.replace !== false;
   if (replace && runningScanCount() >= maxConcurrentScans()) {
@@ -194,9 +199,11 @@ export async function startScan(input: {
   }
 
   const fullHandle = sitesForScan(includeNsfw, { profile: "full" }).length;
+  const wantVariants = variantsEnabled(input.variants);
+  const wantAuto = autoPivotsEnabled(input.autoPivots);
   const siteCount =
     kind === "handle"
-      ? sitesForScan(includeNsfw, { profile }).length
+      ? handleScanProbeCount(includeNsfw, { profile, variants: wantVariants, power: wantPower })
       : kind === "mail"
         ? mailScanSiteCount(profile)
         : kind === "phone"
@@ -208,8 +215,8 @@ export async function startScan(input: {
   const profileNote =
     kind === "handle"
       ? profile === "lean"
-        ? `Lean profile: ${siteCount} high-signal sites (skipped chronically blocked modules; not the full ${fullHandle}-site map). Choose Full for the complete scan.`
-        : `Full profile: ${siteCount} sites. Fast tier runs first, then the rest.`
+        ? `Lean profile: ${sitesForScan(includeNsfw, { profile: "lean" }).length} high-signal sites (skipped chronically blocked modules; not the full ${fullHandle}-site map). Choose Full for the complete scan.${wantVariants ? " Handle variants recon high-signal sites only." : ""}`
+        : `Full profile: ${sitesForScan(includeNsfw, { profile: "full" }).length} unique sites (WMN + Sherlock + Maigret, deduped). Fast tier runs first, then the rest.${wantVariants ? " Variants recon a capped high-signal slice." : ""}`
       : kind === "mail"
         ? profile === "lean"
           ? `Lean mail: proven oracles only, high-signal first; quarantined and chronically blocked skipped (${siteCount} checks).`
@@ -234,6 +241,9 @@ export async function startScan(input: {
     profileNote,
     source: input.source ?? "user",
     power: wantPower,
+    autoPivots: wantAuto,
+    variants: wantVariants,
+    pivotDepth: Math.max(0, input.pivotDepth ?? 0),
   };
   const stored: StoredScan = { summary, rows: [], listeners: new Set(), pool: null, lastProgressAt: Date.now(), doneEmitted: false };
   scans.set(id, stored);
@@ -245,7 +255,16 @@ export async function startScan(input: {
   }
 
   queueMicrotask(() => {
-    void execute(stored, workers, perHost, profile, input.persist !== false, Boolean(input.power));
+    void execute(
+      stored,
+      workers,
+      perHost,
+      profile,
+      input.persist !== false,
+      Boolean(input.power),
+      wantVariants,
+      wantAuto,
+    );
   });
   return summary;
 }
@@ -257,6 +276,8 @@ async function execute(
   profile: ScanProfile,
   persist: boolean,
   releasePower: boolean,
+  wantVariants: boolean,
+  wantAuto: boolean,
 ): Promise<void> {
   let pending: LedgerRow[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -290,15 +311,18 @@ async function execute(
 
   try {
     if (stored.summary.mode === "handle") {
-      await runHandleScan(stored.summary.id, stored.summary.query, {
+      const variantList = await runHandleScan(stored.summary.id, stored.summary.query, {
         includeNsfw: stored.summary.includeNsfw,
         workers,
         perHost,
         profile,
+        power: stored.summary.power,
+        variants: wantVariants,
         onRow,
         onPool,
         onNotice: (message) => emit(stored, { type: "notice", message }),
       });
+      stored.summary.variantList = variantList;
     } else if (stored.summary.mode === "mail") {
       const dossier = await buildMailDossier(stored.summary.query);
       stored.summary.dossier = dossier;
@@ -501,6 +525,27 @@ async function execute(
         clusters: stored.summary.avatarClusters,
       });
       emit(stored, { type: "graph", graph: stored.summary.graph });
+      if (wantAuto) {
+        const queued = planAutoPivots({
+          summary: stored.summary,
+          rows: stored.rows,
+          autoPivots: true,
+          variants: wantVariants,
+          power: stored.summary.power,
+        });
+        stored.summary.queuedPivots = queued;
+        if (queued.length) {
+          emit(
+            stored,
+            {
+              type: "notice",
+              message: `Auto-pivots queued (${queued.length}, depth ${(stored.summary.pivotDepth ?? 0) + 1}): ${queued
+                .map((p) => `${p.mode} ${p.query}`)
+                .join(" · ")}`,
+            },
+          );
+        }
+      }
     }
   } catch (err) {
     if (err instanceof ScanAbortError) {

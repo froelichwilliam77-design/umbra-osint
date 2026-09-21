@@ -24,6 +24,7 @@ export interface ClassifyResult {
   existHit: boolean;
   missHit: boolean;
   waf: boolean;
+  confidence: MatchConfidence;
 }
 
 const SOFT_404 = [
@@ -75,7 +76,31 @@ const SOFT_404 = [
   "profile unavailable",
   "that user does not exist",
   "no profile found",
+  "sorry, that page doesn't exist",
+  "sorry, that page does not exist",
+  "this user does not exist",
+  "this user doesn't exist",
+  "couldn't find this account",
+  "could not find this account",
+  "can't find this account",
+  "cannot find this account",
+  "no one by that username",
+  "nobody by that username",
+  "username is not registered",
+  "the specified user could not be found",
+  "user not exist",
+  "profile does not exist",
+  "profile doesn't exist",
+  "isn't available",
+  "is not available",
+  "cannot find the user",
+  "we can't find that account",
+  "we couldn't find that account",
+  "account not available",
+  "no such profile",
 ];
+
+export type MatchConfidence = "high" | "medium" | "low";
 
 function headerMap(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -93,7 +118,7 @@ export function includesLoose(haystack: string, needle: string): boolean {
 }
 
 export function detectWaf(input: Pick<ClassifyInput, "status" | "body" | "headers">): string | null {
-  if (input.status === 403) return "HTTP 403 — treated as blocked, not a miss.";
+  // 403 is not always a WAF — some sites 403 missing profiles. Challenge/rate-limit still block.
   if (input.status === 429) return "HTTP 429 rate limit — treated as blocked, not a miss.";
   if (input.status === 451) return "HTTP 451 unavailable for legal reasons — treated as blocked, not a miss.";
   const headers = headerMap(input.headers);
@@ -279,6 +304,13 @@ export function htmlAccountEvidence(body: string, account?: string): boolean {
   if (lower.includes(`"login":"${acc}"`) || lower.includes(`"handle":"${acc}"`)) return true;
   if (lower.includes(`href="/~${acc}"`) || lower.includes(`href='/~${acc}'`)) return true;
   if (new RegExp(`['"]username['"]\\s*=>\\s*['"]${acc}['"]`, "i").test(slice)) return true;
+  const ogUrl = (
+    slice.match(/property=["']og:url["'][^>]*content=["']([^"']+)/i)?.[1] ??
+    slice.match(/content=["']([^"']+)["'][^>]*property=["']og:url["']/i)?.[1] ??
+    slice.match(/rel=["']canonical["'][^>]*href=["']([^"']+)/i)?.[1] ??
+    ""
+  ).toLowerCase();
+  if (ogUrl && word.test(ogUrl) && !/login|signup|explore|search/.test(ogUrl)) return true;
   return false;
 }
 
@@ -298,54 +330,85 @@ export function jsonErrorMissing(body: string): boolean {
   }
 }
 
+function classified(
+  status: LedgerStatus,
+  reason: string,
+  extra: { existHit: boolean; missHit: boolean; waf: boolean; confidence?: MatchConfidence },
+): ClassifyResult {
+  return {
+    status,
+    reason,
+    existHit: extra.existHit,
+    missHit: extra.missHit,
+    waf: extra.waf,
+    confidence: extra.confidence ?? inferConfidence(status, reason, extra.waf),
+  };
+}
+
+export function inferConfidence(status: LedgerStatus, reason: string, waf = false): MatchConfidence {
+  const r = reason.toLowerCase();
+  if (status === "escalate" || status === "error" || status === "invalid") return "low";
+  if (status === "found") {
+    if (r.includes("json body names") || r.includes("exist match")) return "high";
+    if (r.includes("title/og") || r.includes("redirect still points") || r.includes("drifted")) return "medium";
+    return "medium";
+  }
+  if (status === "miss") {
+    if (r.includes("404") || r.includes("410") || r.includes("soft-404") || r.includes("json error") || r.includes("missing match")) {
+      return "high";
+    }
+    return "medium";
+  }
+  if (status === "blocked") {
+    if (waf && (r.includes("429") || r.includes("451") || r.includes("captcha") || r.includes("challenge"))) return "high";
+    return "medium";
+  }
+  return "low";
+}
+
 function preferSpecificMatcher(spec: MatchSpec, existHit: boolean, missHit: boolean, status: number): ClassifyResult | null {
   if (!(existHit && missHit)) return null;
   const e = spec.e_string.toLowerCase();
   const m = spec.m_string.toLowerCase();
   if (m && e && m.includes(e) && m.length > e.length) {
-    return {
-      status: "miss",
-      reason: "Missing-string is more specific than exist-string (substring collision) — miss.",
+    return classified("miss", "Missing-string is more specific than exist-string (substring collision) — miss.", {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   if (e && m && e.includes(m) && e.length > m.length) {
-    return {
-      status: "found",
-      reason: "Exist-string is more specific than missing-string (substring collision) — found.",
+    return classified("found", "Exist-string is more specific than missing-string (substring collision) — found.", {
       existHit: true,
       missHit: false,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   if (status === 404 || status === 410) {
-    return {
-      status: "miss",
-      reason: `HTTP ${status} wins the exist+missing collision — profile absent.`,
+    return classified("miss", `HTTP ${status} wins the exist+missing collision — profile absent.`, {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   if (spec.m_code != null && status === spec.m_code && status !== spec.e_code) {
-    return {
-      status: "miss",
-      reason: `HTTP ${status} matches the missing status in an exist+missing collision.`,
+    return classified("miss", `HTTP ${status} matches the missing status in an exist+missing collision.`, {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   if (spec.e_code != null && status === spec.e_code && status !== spec.m_code) {
-    return {
-      status: "found",
-      reason: `HTTP ${status} matches the exist status in an exist+missing collision.`,
+    return classified("found", `HTTP ${status} matches the exist status in an exist+missing collision.`, {
       existHit: true,
       missHit: false,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   return null;
 }
@@ -368,16 +431,18 @@ export function jsonEmptyCollection(body: string): boolean {
   }
 }
 
+function absenceOnForbidden(input: ClassifyInput): boolean {
+  if (input.status !== 403) return false;
+  if (isSoft404(input.body) || jsonErrorMissing(input.body) || jsonEmptyCollection(input.body)) return true;
+  const t = input.body.slice(0, 2_000).toLowerCase().trim();
+  if (!t) return false;
+  return /not found|doesn't exist|does not exist|no such user|unknown user/.test(t);
+}
+
 export function classifyResponse(spec: MatchSpec, input: ClassifyInput): ClassifyResult {
   const waf = detectWaf(input);
   if (waf) {
-    return {
-      status: "blocked",
-      reason: waf,
-      existHit: false,
-      missHit: false,
-      waf: true,
-    };
+    return classified("blocked", waf, { existHit: false, missHit: false, waf: true });
   }
 
   const dest = input.finalUrl || input.location;
@@ -387,47 +452,60 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
     input.status < 400 &&
     locationLooksLikeProfile(input.requestedUrl, dest, input.account)
   ) {
-    return {
-      status: "found",
-      reason: `Redirect still points at a /${input.account} profile.`,
+    return classified("found", `Redirect still points at a /${input.account} profile.`, {
       existHit: true,
       missHit: false,
       waf: false,
-    };
+      confidence: "medium",
+    });
   }
 
   const off = redirectOffProfile(input.requestedUrl, input.location, input.finalUrl, input.account);
   if (off && input.status >= 300 && input.status < 400) {
     const { existHit, missHit } = dualCondition(spec, input.status, input.body);
     if (existHit && !missHit) {
-      return { status: "found", reason: "Exist conditions matched despite redirect.", existHit, missHit, waf: false };
+      return classified("found", "Exist conditions matched despite redirect.", {
+        existHit,
+        missHit,
+        waf: false,
+        confidence: "medium",
+      });
     }
-    return {
-      status: "miss",
-      reason: off,
-      existHit,
-      missHit: true,
-      waf: false,
-    };
+    return classified("miss", off, { existHit, missHit: true, waf: false, confidence: "medium" });
   }
 
   if (jsonAccountEvidence(input.body, input.account) && input.status >= 200 && input.status < 300) {
-    return {
-      status: "found",
-      reason: `JSON body names account "${input.account}" (matcher recovered).`,
+    return classified("found", `JSON body names account "${input.account}" (matcher recovered).`, {
       existHit: true,
       missHit: false,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
   if (htmlAccountEvidence(input.body, input.account) && input.status >= 200 && input.status < 400) {
-    return {
-      status: "found",
-      reason: `Profile page names account "${input.account}" (title/OG/username).`,
+    return classified("found", `Profile page names account "${input.account}" (title/OG/username).`, {
       existHit: true,
       missHit: false,
       waf: false,
-    };
+      confidence: "medium",
+    });
+  }
+
+  if (input.status === 403) {
+    if (absenceOnForbidden(input)) {
+      return classified("miss", "HTTP 403 with a missing-profile body — miss, not a WAF block.", {
+        existHit: false,
+        missHit: true,
+        waf: false,
+        confidence: "medium",
+      });
+    }
+    return classified("blocked", "HTTP 403 — treated as blocked (no missing-profile body), not a miss.", {
+      existHit: false,
+      missHit: false,
+      waf: true,
+      confidence: "medium",
+    });
   }
 
   const { existHit, missHit } = dualCondition(spec, input.status, input.body);
@@ -435,116 +513,125 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
     const resolved = preferSpecificMatcher(spec, existHit, missHit, input.status);
     if (resolved) return resolved;
     if (isSoft404(input.body) || jsonErrorMissing(input.body) || jsonEmptyCollection(input.body)) {
-      return {
-        status: "miss",
-        reason: "Exist+missing collision resolved as miss (soft-404 / empty / not-found JSON).",
+      return classified("miss", "Exist+missing collision resolved as miss (soft-404 / empty / not-found JSON).", {
         existHit: false,
         missHit: true,
         waf: false,
-      };
+        confidence: "high",
+      });
     }
-    return {
-      status: "escalate",
-      reason: "Both exist and missing conditions matched — ambiguous.",
+    return classified("escalate", "Both exist and missing conditions matched — ambiguous.", {
       existHit,
       missHit,
       waf: false,
-    };
+      confidence: "low",
+    });
   }
   if (existHit) {
-    if (!spec.e_string && input.status === 200 && isSoft404(input.body)) {
-      return {
-        status: "miss",
-        reason: "Soft-404: HTTP 200 but the body reads as a missing profile.",
+    if (!spec.e_string && input.status >= 200 && input.status < 300) {
+      if (isSoft404(input.body) || jsonErrorMissing(input.body) || jsonEmptyCollection(input.body)) {
+        return classified("miss", "Soft-404: HTTP 200 but the body reads as a missing profile.", {
+          existHit: false,
+          missHit: true,
+          waf: false,
+          confidence: "high",
+        });
+      }
+      // Empty exist-string (typical Sherlock status_code) is not proof of a profile.
+      if (jsonAccountEvidence(input.body, input.account) || htmlAccountEvidence(input.body, input.account)) {
+        return classified("found", `HTTP ${input.status} profile names "${input.account}" (empty e_string recovered).`, {
+          existHit: true,
+          missHit: false,
+          waf: false,
+          confidence: "medium",
+        });
+      }
+      return classified(
+        "escalate",
+        `HTTP ${input.status} with an empty exist-string and no account evidence — not counted as found.`,
+        { existHit: false, missHit: false, waf: false, confidence: "low" },
+      );
+    }
+    return classified("found", `Exist match (status ${input.status}${spec.e_string ? ` + body` : ""}).`, {
+      existHit,
+      missHit,
+      waf: false,
+      confidence: spec.e_string ? "high" : "medium",
+    });
+  }
+  if (missHit) {
+    return classified("miss", `Missing match (status ${input.status}${spec.m_string ? ` + body` : ""}).`, {
+      existHit,
+      missHit,
+      waf: false,
+      confidence: "high",
+    });
+  }
+  if (input.status === 200 && isSoft404(input.body)) {
+    return classified("miss", "Soft-404 body on HTTP 200 — miss with reason, not a found.", {
+      existHit: false,
+      missHit: true,
+      waf: false,
+      confidence: "high",
+    });
+  }
+  if ((input.status === 404 || input.status === 410) && !existHit) {
+    return classified(
+      "miss",
+      input.status === 410
+        ? "HTTP 410 Gone — profile absent (missing-condition body did not need to match)."
+        : "HTTP 404 — no profile (status indicates absence even if missing-string drifted).",
+      { existHit: false, missHit: true, waf: false, confidence: "high" },
+    );
+  }
+  if (input.status === 200 && jsonEmptyCollection(input.body) && spec.e_string && !existHit) {
+    return classified("miss", "HTTP 200 with an empty JSON collection — no matching profile.", {
+      existHit: false,
+      missHit: true,
+      waf: false,
+      confidence: "high",
+    });
+  }
+  if (input.status === 204 && !existHit) {
+    return classified("miss", "HTTP 204 No Content — no profile payload.", {
+      existHit: false,
+      missHit: true,
+      waf: false,
+      confidence: "high",
+    });
+  }
+  if (input.status === 401) {
+    if (isSoft404(input.body) || jsonErrorMissing(input.body)) {
+      return classified("miss", "HTTP 401 with a missing-profile body — miss, not an auth wall.", {
         existHit: false,
         missHit: true,
         waf: false,
-      };
+        confidence: "medium",
+      });
     }
-    return {
-      status: "found",
-      reason: `Exist match (status ${input.status}${spec.e_string ? ` + body` : ""}).`,
-      existHit,
-      missHit,
-      waf: false,
-    };
-  }
-  if (missHit) {
-    return {
-      status: "miss",
-      reason: `Missing match (status ${input.status}${spec.m_string ? ` + body` : ""}).`,
-      existHit,
-      missHit,
-      waf: false,
-    };
-  }
-  if (input.status === 200 && isSoft404(input.body)) {
-    return {
-      status: "miss",
-      reason: "Soft-404 body on HTTP 200 — miss with reason, not a found.",
-      existHit: false,
-      missHit: true,
-      waf: false,
-    };
-  }
-  if ((input.status === 404 || input.status === 410) && !existHit) {
-    return {
-      status: "miss",
-      reason:
-        input.status === 410
-          ? "HTTP 410 Gone — profile absent (missing-condition body did not need to match)."
-          : "HTTP 404 — no profile (status indicates absence even if missing-string drifted).",
-      existHit: false,
-      missHit: true,
-      waf: false,
-    };
-  }
-  if (input.status === 200 && jsonEmptyCollection(input.body) && spec.e_string && !existHit) {
-    return {
-      status: "miss",
-      reason: "HTTP 200 with an empty JSON collection — no matching profile.",
-      existHit: false,
-      missHit: true,
-      waf: false,
-    };
-  }
-  if (input.status === 204 && !existHit) {
-    return {
-      status: "miss",
-      reason: "HTTP 204 No Content — no profile payload.",
-      existHit: false,
-      missHit: true,
-      waf: false,
-    };
-  }
-  if (input.status === 401) {
-    return {
-      status: "blocked",
-      reason: "HTTP 401 auth wall — treated as blocked, not a miss.",
+    return classified("blocked", "HTTP 401 auth wall — treated as blocked, not a miss.", {
       existHit: false,
       missHit: false,
       waf: true,
-    };
+      confidence: "medium",
+    });
   }
   if (input.status === 400 && !existHit) {
-    return {
-      status: "miss",
-      reason: "HTTP 400 — no profile payload (missing-condition body did not need to match).",
+    return classified("miss", "HTTP 400 — no profile payload (missing-condition body did not need to match).", {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "medium",
+    });
   }
   if (jsonErrorMissing(input.body) && input.status >= 200 && input.status < 500 && !existHit) {
-    return {
-      status: "miss",
-      reason: "JSON error payload reports the profile was not found.",
+    return classified("miss", "JSON error payload reports the profile was not found.", {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "high",
+    });
   }
-  // Stale e_code: exist-string still present on a 2xx that is not the recorded exist status.
   if (
     spec.e_string &&
     includesLoose(input.body, spec.e_string) &&
@@ -552,58 +639,44 @@ export function classifyResponse(spec: MatchSpec, input: ClassifyInput): Classif
     input.status < 300 &&
     !isSoft404(input.body)
   ) {
-    return {
-      status: "found",
-      reason: `Exist body matched on HTTP ${input.status} (status code drifted from e_code ${spec.e_code}).`,
-      existHit: true,
-      missHit: false,
-      waf: false,
-    };
+    return classified(
+      "found",
+      `Exist body matched on HTTP ${input.status} (status code drifted from e_code ${spec.e_code}).`,
+      { existHit: true, missHit: false, waf: false, confidence: "medium" },
+    );
   }
-  // Stale m_code: missing-string still present.
   if (spec.m_string && includesLoose(input.body, spec.m_string) && !existHit) {
-    return {
-      status: "miss",
-      reason: `Missing body matched on HTTP ${input.status} (status code drifted from m_code ${spec.m_code}).`,
-      existHit: false,
-      missHit: true,
-      waf: false,
-    };
+    return classified(
+      "miss",
+      `Missing body matched on HTTP ${input.status} (status code drifted from m_code ${spec.m_code}).`,
+      { existHit: false, missHit: true, waf: false, confidence: "medium" },
+    );
   }
   if (input.status >= 500) {
-    return {
-      status: "error",
-      reason: `Upstream HTTP ${input.status}.`,
-      existHit,
-      missHit,
-      waf: false,
-    };
+    return classified("error", `Upstream HTTP ${input.status}.`, { existHit, missHit, waf: false, confidence: "low" });
   }
   if (input.status === 406 || input.status === 999) {
-    return {
-      status: "blocked",
-      reason: `HTTP ${input.status} — treated as blocked, not a miss.`,
+    return classified("blocked", `HTTP ${input.status} — treated as blocked, not a miss.`, {
       existHit: false,
       missHit: false,
       waf: true,
-    };
+      confidence: "medium",
+    });
   }
   if (input.status >= 300 && input.status < 400) {
-    return {
-      status: "miss",
-      reason: `HTTP ${input.status} redirect is not a /${input.account ?? "account"} profile.`,
+    return classified("miss", `HTTP ${input.status} redirect is not a /${input.account ?? "account"} profile.`, {
       existHit: false,
       missHit: true,
       waf: false,
-    };
+      confidence: "medium",
+    });
   }
-  return {
-    status: "escalate",
-    reason: `Neither exist nor missing conditions matched (HTTP ${input.status}).`,
+  return classified("escalate", `Neither exist nor missing conditions matched (HTTP ${input.status}).`, {
     existHit,
     missHit,
     waf: false,
-  };
+    confidence: "low",
+  });
 }
 
 export function excerpt(body: string, needle = "", max = 280): string {
