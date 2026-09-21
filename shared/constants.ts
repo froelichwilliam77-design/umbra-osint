@@ -115,6 +115,8 @@ export const WAF_BODY_HINTS = [
   "please enable cookies",
   "please wait while we check",
   "ray id",
+  "whoa there",
+  "pardner",
 ];
 
 export const WAF_HEADER_HINTS = [

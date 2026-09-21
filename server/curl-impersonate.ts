@@ -77,6 +77,9 @@ export function tlsMode(): "off" | "auto" | "always" {
 const WAF_HEAVY =
   /cloudflare|akamai|fastly|imperva|incapsula|sucuri|ddos|captcha|waf|perimeter|datadome|kasada|cf-ray/i;
 
+/** Hosts that soft-block generic TLS (Power uses curl-impersonate). Hostname, not CDN brand. */
+const TLS_SCRAPER_HOSTS = /(?:^|\.)reddit\.com$/i;
+
 export function isWafHeavy(opts: { protection?: string[]; url?: string }): boolean {
   if (opts.protection?.some((p) => WAF_HEAVY.test(p))) return true;
   const host = (() => {
@@ -86,6 +89,8 @@ export function isWafHeavy(opts: { protection?: string[]; url?: string }): boole
       return "";
     }
   })();
+  if (!host) return false;
+  if (TLS_SCRAPER_HOSTS.test(host)) return true;
   return WAF_HEAVY.test(host);
 }
 

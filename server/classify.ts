@@ -121,6 +121,13 @@ export function detectWaf(input: Pick<ClassifyInput, "status" | "body" | "header
   // 403 is not always a WAF — some sites 403 missing profiles. Challenge/rate-limit still block.
   if (input.status === 429) return "HTTP 429 rate limit — treated as blocked, not a miss.";
   if (input.status === 451) return "HTTP 451 unavailable for legal reasons — treated as blocked, not a miss.";
+  // Reddit (and similar) 404 JSON must not be swallowed as a WAF "forbidden" false-block.
+  if (
+    (input.status === 404 || input.status === 410 || input.status === 400 || input.status === 403) &&
+    jsonErrorMissing(input.body)
+  ) {
+    return null;
+  }
   const headers = headerMap(input.headers);
   if (headers["retry-after"] && (input.status === 429 || input.status === 503 || input.status === 403)) {
     return `Retry-After ${headers["retry-after"]} — treated as blocked, not a miss.`;
@@ -237,6 +244,7 @@ const USERNAME_KEYS = [
   "nick",
   "uid",
   "slug",
+  "name",
   "display_name",
   "displayName",
   "uniqueName",
